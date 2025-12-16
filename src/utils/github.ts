@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import dotenv from "dotenv";
+dotenv.config();
 
 const GITHUB_SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 

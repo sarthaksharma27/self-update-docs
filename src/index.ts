@@ -3,7 +3,7 @@ import bodyParser from "body-parser";
 import { verifySignature } from "./utils/github";
 
 const app = express();
-const PORT = 3000;
+const PORT = 8000;
 
 app.use(
   bodyParser.json({
@@ -25,7 +25,7 @@ app.post("/github/webhook", (req: any, res) => {
   res.sendStatus(200);
 });
 
-app.get("/health", (_req, res) => res.send("ok"));
+app.get("/", (_req, res) => res.send("this is sarthak from server"));
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
