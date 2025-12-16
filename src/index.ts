@@ -1,10 +1,18 @@
 import express from "express";
 
 const app = express();
-const PORT = 8000;
+const PORT = 3000;
+
+app.use(express.json());
 
 app.get("/", (_req, res) => {
-  res.send("This is sarthak from backend");
+  res.send("This is sarthak from server");
+});
+
+app.post("/github/webhook", (req, res) => {
+  console.log("Webhook received");
+  console.log(req.body);
+  res.sendStatus(200);
 });
 
 app.listen(PORT, () => {
