@@ -3,6 +3,7 @@ import bodyParser from "body-parser";
 import { getPullRequestFiles, verifySignature } from "./utils/github";
 import { classifyDocRelevance } from "./utils/aiClassifier";
 import { summarizeDiff } from "./utils/diffSummary";
+import { getRelevantContext } from "./utils/contextRetriever";
 
 const app = express();
 const PORT = 8000;
@@ -65,6 +66,9 @@ app.post("/github/webhook", async (req: any, res) => {
 
    const diffSummary = summarizeDiff(files);
    console.log("DIFF SUMMARY:", diffSummary);
+
+   const contextBlocks = await getRelevantContext(diffSummary);
+   console.log("RELEVANT CONTEXT:", contextBlocks);
 
 
   res.sendStatus(200);
