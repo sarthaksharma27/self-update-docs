@@ -30,11 +30,26 @@ app.post("/github/webhook", (req: any, res) => {
     return res.sendStatus(200);
   }
 
-  console.log("PR event received:", action);
-  console.log(req.body);
+  const pr = req.body.pull_request;
+  const repo = req.body.repository;
+
+  const prNumber = pr.number;
+  const baseSha = pr.base.sha;
+  const headSha = pr.head.sha;
+  const owner = repo.owner.login;
+  const repoName = repo.name;
+
+  console.log({
+    owner,
+    repoName,
+    prNumber,
+    baseSha,
+    headSha,
+  });
 
   res.sendStatus(200);
 });
+
 
 app.get("/", (_req, res) => res.send("this is sarthak from server"));
 
