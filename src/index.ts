@@ -1,6 +1,6 @@
 import express from "express";
 import bodyParser from "body-parser";
-import { verifySignature } from "./utils/github";
+import { getPullRequestFiles, verifySignature } from "./utils/github";
 
 const app = express();
 const PORT = 8000;
@@ -13,7 +13,7 @@ app.use(
   })
 );
 
-app.post("/github/webhook", (req: any, res) => {
+app.post("/github/webhook", async (req: any, res) => {
   const signature = req.headers["x-hub-signature-256"] as string;
 
   if (!verifySignature(req.rawBody, signature)) {
@@ -46,6 +46,10 @@ app.post("/github/webhook", (req: any, res) => {
     baseSha,
     headSha,
   });
+
+  const files = await getPullRequestFiles(owner, repoName, prNumber);
+
+  console.log(files);
 
   res.sendStatus(200);
 });
