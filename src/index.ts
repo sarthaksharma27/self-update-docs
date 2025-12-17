@@ -20,8 +20,19 @@ app.post("/github/webhook", (req: any, res) => {
     return res.status(401).send("Invalid signature");
   }
 
-  console.log("Webhook verified successfully");
+  const event = req.headers["x-github-event"];
+  if (event !== "pull_request") {
+    return res.sendStatus(200);
+  }
+
+  const action = req.body.action;
+  if (!["opened", "synchronize"].includes(action)) {
+    return res.sendStatus(200);
+  }
+
+  console.log("PR event received:", action);
   console.log(req.body);
+
   res.sendStatus(200);
 });
 
