@@ -2,6 +2,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import { getPullRequestFiles, verifySignature } from "./utils/github";
 import { classifyDocRelevance } from "./utils/aiClassifier";
+import { summarizeDiff } from "./utils/diffSummary";
 
 const app = express();
 const PORT = 8000;
@@ -52,15 +53,19 @@ app.post("/github/webhook", async (req: any, res) => {
 
   console.log(files);
 
-   const result = await classifyDocRelevance(files);
-   console.log("AI classification:", result);
+//    const result = await classifyDocRelevance(files);
+//    console.log("AI classification:", result);
 
-  if (!result.doc_relevant || result.confidence < 0.6) {
-    console.log(`PR #${prNumber} not relevant for docs.`);
-    return res.sendStatus(200);
-  }
+//   if (!result.doc_relevant || result.confidence < 0.6) {
+//     console.log(`PR #${prNumber} not relevant for docs.`);
+//     return res.sendStatus(200);
+//   }
 
    console.log(`PR #${prNumber} *IS* relevant for docs!`);
+
+   const diffSummary = summarizeDiff(files);
+   console.log("DIFF SUMMARY:", diffSummary);
+
 
   res.sendStatus(200);
 });
