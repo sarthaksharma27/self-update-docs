@@ -4,6 +4,7 @@ import { getPullRequestFiles, verifySignature } from "./utils/github";
 import { classifyDocRelevance } from "./utils/aiClassifier";
 import { summarizeDiff } from "./utils/diffSummary";
 import { getRelevantContext } from "./utils/contextRetriever";
+import { generateDocUpdate } from "./utils/docGenerator";
 
 const app = express();
 const PORT = 8000;
@@ -69,6 +70,11 @@ app.post("/github/webhook", async (req: any, res) => {
 
    const contextBlocks = await getRelevantContext(diffSummary);
    console.log("RELEVANT CONTEXT:", contextBlocks);
+
+   const docText = await generateDocUpdate(diffSummary, contextBlocks);
+
+    console.log("GENERATED DOC UPDATE:");
+    console.log(docText);
 
 
   res.sendStatus(200);

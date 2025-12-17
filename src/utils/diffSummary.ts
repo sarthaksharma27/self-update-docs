@@ -9,7 +9,7 @@ export type DiffSummary = {
 export function summarizeDiff(files: {
   filename: string;
   status: string;
-  patch: string;
+  patch?: string;
 }[]): DiffSummary {
   const addedEndpoints = new Set<string>();
   const modifiedEndpoints = new Set<string>();
@@ -20,21 +20,33 @@ export function summarizeDiff(files: {
 
     if (!file.patch) continue;
 
-    // Very naive Express-style route detection
-    const routeRegex =
-      /router\.(get|post|put|delete)\(\s*["'`](.*?)["'`]/gi;
+    // Split patch into lines
+    const lines = file.patch.split("\n");
 
-    let match;
-    while ((match = routeRegex.exec(file.patch)) !== null) {
+    for (const line of lines) {
+      // Only care about newly added lines
+      if (!line.startsWith("+")) continue;
+
+      // Ignore diff metadata (e.g. +++ b/file.ts)
+      if (line.startsWith("+++")) continue;
+
+      // Match Express-style routes ONLY on added lines
+      const routeRegex =
+        /router\.(get|post|put|delete)\(\s*["'`](.*?)["'`]/i;
+
+      const match = routeRegex.exec(line);
+      if (!match) continue;
+
       const method = match[1].toUpperCase();
       const path = match[2];
       const endpoint = `${method} ${path}`;
 
-      // If file is newly added OR diff contains "+"
-      if (file.status === "added" || file.patch.includes(`+router.${match[1]}`)) {
+      // If the whole file is new → definitely added
+      if (file.status === "added") {
         addedEndpoints.add(endpoint);
       } else {
-        modifiedEndpoints.add(endpoint);
+        // For modified files, added route = new endpoint
+        addedEndpoints.add(endpoint);
       }
     }
   }
