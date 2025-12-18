@@ -1,4 +1,3 @@
-// utils/docGenerator.ts
 import OpenAI from "openai";
 import { DiffSummary } from "./diffSummary";
 
@@ -49,7 +48,7 @@ FORMAT REQUIREMENTS:
       },
       { role: "user", content: prompt },
     ],
-    temperature: 0.1, // even lower = more conservative
+    temperature: 0.1,
   });
 
   const text = response.choices?.[0]?.message?.content;

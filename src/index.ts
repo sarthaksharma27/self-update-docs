@@ -73,8 +73,8 @@ app.post("/github/webhook", async (req: any, res) => {
 
    const docText = await generateDocUpdate(diffSummary, contextBlocks);
 
-    console.log("GENERATED DOC UPDATE:");
-    console.log(docText);
+   console.log("GENERATED DOC UPDATE:");
+   console.log(docText);
 
 
   res.sendStatus(200);

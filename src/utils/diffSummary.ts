@@ -1,5 +1,3 @@
-// utils/diffSummary.ts
-
 export type DiffSummary = {
   addedEndpoints: string[];
   modifiedEndpoints: string[];
