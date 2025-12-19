@@ -41,7 +41,10 @@ app.post("/github/webhook", async (req: any, res) => {
 
     await prisma.installationOwner.upsert({
       where: { githubInstallationId: installation.id },
-      update: {},
+      update: {
+        isActive: true,
+        uninstalledAt: null,
+      },
       create: {
         githubInstallationId: installation.id,
         githubLogin: typeof installation.account === 'object' ? installation.account.login : installation.account,
@@ -59,6 +62,22 @@ app.post("/github/webhook", async (req: any, res) => {
     return res.sendStatus(200);
   }
 
+  if (event === "installation" && req.body.action === "deleted") {
+    const installationId = req.body.installation.id;
+
+    await prisma.installationOwner.update({
+      where: { githubInstallationId: installationId },
+      data: {
+        isActive: false,
+        uninstalledAt: new Date(),
+      },
+    });
+
+    console.log("Client deactivated:", installationId);
+    return res.sendStatus(200);
+  }
+
+
     if (event === "pull_request") {
     const installationId = req.body.installation.id;
 
@@ -67,8 +86,8 @@ app.post("/github/webhook", async (req: any, res) => {
       include: { repositories: true },
     });
 
-    if (!installationOwner) {
-      return res.status(401).send("Unknown installation");
+    if (!installationOwner || !installationOwner.isActive) {
+      return res.status(401).send("Inactive installation");
     }
 
     const repo = installationOwner.repositories[0];

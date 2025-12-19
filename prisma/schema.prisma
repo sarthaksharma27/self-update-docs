@@ -12,6 +12,9 @@ model InstallationOwner {
   githubLogin          String
   githubAccountType    String       // User | Organization
 
+  isActive              Boolean  @default(true)
+  uninstalledAt         DateTime?
+
   repositories         Repository[] // One-to-many relation
 
   createdAt            DateTime     @default(now())
