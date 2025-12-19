@@ -25,35 +25,62 @@ app.post("/github/webhook", async (req: any, res) => {
   }
 
   const event = req.headers["x-github-event"];
-  if (event !== "pull_request") {
+
+  if (event === "installation") {
+    const action = req.body.action;
+
+    console.log("INSTALLATION EVENT:", action);
+    console.log({
+      installationId: req.body.installation.id,
+      account: req.body.installation.account.login,
+      accountType: req.body.installation.account.type,
+      repositories: req.body.repositories?.map((r: any) => r.full_name),
+    });
+
     return res.sendStatus(200);
   }
 
-  const action = req.body.action;
-  if (!["opened", "synchronize"].includes(action)) {
-    return res.sendStatus(200);
-  }
+  res.sendStatus(200);
+});
 
-  const pr = req.body.pull_request;
-  const repo = req.body.repository;
 
-  const prNumber = pr.number;
-  const baseSha = pr.base.sha;
-  const headSha = pr.head.sha;
-  const owner = repo.owner.login;
-  const repoName = repo.name;
+// app.post("/github/webhook", async (req: any, res) => {
+//   const signature = req.headers["x-hub-signature-256"] as string;
 
-  console.log({
-    owner,
-    repoName,
-    prNumber,
-    baseSha,
-    headSha,
-  });
+//   if (!verifySignature(req.rawBody, signature)) {
+//     return res.status(401).send("Invalid signature");
+//   }
 
-  const files = await getPullRequestFiles(owner, repoName, prNumber);
+//   const event = req.headers["x-github-event"];
+//   if (event !== "pull_request") {
+//     return res.sendStatus(200);
+//   }
 
-  console.log(files);
+//   const action = req.body.action;
+//   if (!["opened", "synchronize"].includes(action)) {
+//     return res.sendStatus(200);
+//   }
+
+//   const pr = req.body.pull_request;
+//   const repo = req.body.repository;
+
+//   const prNumber = pr.number;
+//   const baseSha = pr.base.sha;
+//   const headSha = pr.head.sha;
+//   const owner = repo.owner.login;
+//   const repoName = repo.name;
+
+//   console.log({
+//     owner,
+//     repoName,
+//     prNumber,
+//     baseSha,
+//     headSha,
+//   });
+
+//   const files = await getPullRequestFiles(owner, repoName, prNumber);
+
+//   console.log(files);
 
 //    const result = await classifyDocRelevance(files);
 //    console.log("AI classification:", result);
@@ -63,22 +90,22 @@ app.post("/github/webhook", async (req: any, res) => {
 //     return res.sendStatus(200);
 //   }
 
-   console.log(`PR #${prNumber} *IS* relevant for docs!`);
+//    console.log(`PR #${prNumber} *IS* relevant for docs!`);
 
-   const diffSummary = summarizeDiff(files);
-   console.log("DIFF SUMMARY:", diffSummary);
+//    const diffSummary = summarizeDiff(files);
+//    console.log("DIFF SUMMARY:", diffSummary);
 
-   const contextBlocks = await getRelevantContext(diffSummary);
-   console.log("RELEVANT CONTEXT:", contextBlocks);
+//    const contextBlocks = await getRelevantContext(diffSummary);
+//    console.log("RELEVANT CONTEXT:", contextBlocks);
 
-   const docText = await generateDocUpdate(diffSummary, contextBlocks);
+//    const docText = await generateDocUpdate(diffSummary, contextBlocks);
 
-   console.log("GENERATED DOC UPDATE:");
-   console.log(docText);
+//    console.log("GENERATED DOC UPDATE:");
+//    console.log(docText);
 
 
-  res.sendStatus(200);
-});
+//   res.sendStatus(200);
+// });
 
 
 app.get("/", (_req, res) => res.send("this is sarthak from server"));
