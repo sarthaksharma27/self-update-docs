@@ -108,8 +108,6 @@ app.post("/github/webhook", async (req: any, res) => {
 
 });
 
-
-
 // app.post("/github/webhook", async (req: any, res) => {
 //   const signature = req.headers["x-hub-signature-256"] as string;
 
