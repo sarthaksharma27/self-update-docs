@@ -6,6 +6,7 @@ import { summarizeDiff } from "./utils/diffSummary";
 import { getRelevantContext } from "./utils/contextRetriever";
 import { generateDocUpdate } from "./utils/docGenerator";
 import { prisma } from './lib/prisma';
+import { getInstallationOctokit } from "./utils/octokit";
 
 const app = express();
 const PORT = 8000;
@@ -58,27 +59,33 @@ app.post("/github/webhook", async (req: any, res) => {
     return res.sendStatus(200);
   }
 
-  if (event === "pull_request") {
-  const installationId = req.body.installation.id;
+    if (event === "pull_request") {
+    const installationId = req.body.installation.id;
 
-  const installationOwner = await prisma.installationOwner.findUnique({
-    where: { githubInstallationId: installationId },
-    include: { repositories: true },
-  });
+    const installationOwner = await prisma.installationOwner.findUnique({
+      where: { githubInstallationId: installationId },
+      include: { repositories: true },
+    });
 
-  if (!installationOwner) {
-    return res.status(401).send("Unknown installation");
+    if (!installationOwner) {
+      return res.status(401).send("Unknown installation");
+    }
+
+    const repo = installationOwner.repositories[0];
+    const pr = req.body.pull_request;
+
+    const octokit = getInstallationOctokit(installationId);
+
+    const { data: files } = await octokit.pulls.listFiles({
+      owner: repo.owner,
+      repo: repo.name,
+      pull_number: pr.number,
+    });
+
+    console.log(files);
+
+    return res.sendStatus(200);
   }
-
-  const pr = req.body.pull_request;
-
-  console.log(
-    `PR #${pr.number} from ${installationOwner.githubLogin}`
-  );
-
-  return res.sendStatus(200);
-}
-  return res.sendStatus(200);
 
 });
 
