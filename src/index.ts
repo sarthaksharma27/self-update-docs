@@ -28,39 +28,61 @@ app.post("/github/webhook", async (req: any, res) => {
 
   const event = req.headers["x-github-event"];
 
-  if (event === "installation" && req.body.action === "created") {
-    const installation = req.body.installation;
-    const repo = req.body.repositories?.[0];
+  const installation = req.body.installation;
+const repo = req.body.repositories?.[0];
 
-    console.log({
-      installationId: installation.id,
-      account: typeof installation.account === 'object' ? installation.account.login : installation.account,
-      accountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
-      repositories: req.body.repositories,
-    });
-
-    await prisma.installationOwner.upsert({
-      where: { githubInstallationId: installation.id },
-      update: {
-        isActive: true,
-        uninstalledAt: null,
+// Try to find existing installation by githubLogin + repo
+const existing = await prisma.installationOwner.findFirst({
+  where: {
+    githubLogin:
+      typeof installation.account === "object"
+        ? installation.account.login
+        : installation.account,
+    repositories: {
+      some: {
+        owner: repo.full_name.split("/")[0],
+        name: repo.full_name.split("/")[1],
       },
-      create: {
-        githubInstallationId: installation.id,
-        githubLogin: typeof installation.account === 'object' ? installation.account.login : installation.account,
-        githubAccountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
-        repositories: {
-          create: {
-            owner: repo.full_name.split('/')[0],
-            name: repo.full_name.split('/')[1],
-          },
+    },
+  },
+});
+
+if (existing) {
+  // Reactivate previous record, update installation ID
+  await prisma.installationOwner.update({
+    where: { id: existing.id },
+    data: {
+      githubInstallationId: installation.id, // store new ID
+      isActive: true,
+      uninstalledAt: null,
+    },
+  });
+  console.log("Reactivated existing installation for account:", installation.account.login);
+} else {
+  // Create new record
+  await prisma.installationOwner.create({
+    data: {
+      githubInstallationId: installation.id,
+      githubLogin:
+        typeof installation.account === "object"
+          ? installation.account.login
+          : installation.account,
+      githubAccountType:
+        typeof installation.account === "object"
+          ? installation.account.type
+          : installation.accountType,
+      isActive: true,
+      repositories: {
+        create: {
+          owner: repo.full_name.split("/")[0],
+          name: repo.full_name.split("/")[1],
         },
       },
-    });
+    },
+  });
+  console.log("Created new installation for account:", installation.account.login);
+}
 
-    console.log("Client stored:", installation.id);
-    return res.sendStatus(200);
-  }
 
   if (event === "installation" && req.body.action === "deleted") {
     const installationId = req.body.installation.id;
@@ -103,7 +125,24 @@ app.post("/github/webhook", async (req: any, res) => {
 
     console.log(files);
 
+    const filesForAI = files.map(f => ({
+      filename: f.filename,
+      status: f.status,
+      patch: f.patch || "", // patch might be undefined if the file is large (don't work for big patch)
+    }));
+
+
+    const result = await classifyDocRelevance(filesForAI);
+
+    if (!result.doc_relevant || result.confidence < 0.6) {
+      console.log(`PR is NOT relevant for docs`);
+      return;
+    }
+
+    console.log(`PR *IS* relevant for docs!`);
+
     return res.sendStatus(200);
+
   }
 
 });
