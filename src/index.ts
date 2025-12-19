@@ -5,6 +5,7 @@ import { classifyDocRelevance } from "./utils/aiClassifier";
 import { summarizeDiff } from "./utils/diffSummary";
 import { getRelevantContext } from "./utils/contextRetriever";
 import { generateDocUpdate } from "./utils/docGenerator";
+import { prisma } from './lib/prisma';
 
 const app = express();
 const PORT = 8000;
@@ -26,22 +27,41 @@ app.post("/github/webhook", async (req: any, res) => {
 
   const event = req.headers["x-github-event"];
 
-  if (event === "installation") {
-    const action = req.body.action;
+  if (event === "installation" && req.body.action === "created") {
 
-    console.log("INSTALLATION EVENT:", action);
-    console.log({
-      installationId: req.body.installation.id,
-      account: req.body.installation.account.login,
-      accountType: req.body.installation.account.type,
-      repositories: req.body.repositories?.map((r: any) => r.full_name),
-    });
+    const installation = req.body.installation;
+const repo = req.body.repositories?.[0];
 
+console.log({
+  installationId: installation.id,
+  account: typeof installation.account === 'object' ? installation.account.login : installation.account,
+  accountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
+  repositories: req.body.repositories,
+});
+
+await prisma.installationOwner.upsert({
+  where: { githubInstallationId: installation.id },
+  update: {},
+  create: {
+    githubInstallationId: installation.id,
+    githubLogin: typeof installation.account === 'object' ? installation.account.login : installation.account,
+    githubAccountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
+    repositories: {
+      create: {
+        owner: repo.full_name.split('/')[0],
+        name: repo.full_name.split('/')[1],
+      },
+    },
+  },
+});
+
+
+
+    console.log("Client stored:", installation.id);
     return res.sendStatus(200);
   }
-
-  res.sendStatus(200);
 });
+
 
 
 // app.post("/github/webhook", async (req: any, res) => {

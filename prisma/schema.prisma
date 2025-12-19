@@ -1,0 +1,30 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model InstallationOwner {
+  id                   String       @id @default(uuid())
+  githubInstallationId Int          @unique
+  githubLogin          String
+  githubAccountType    String       // User | Organization
+
+  repositories         Repository[] // One-to-many relation
+
+  createdAt            DateTime     @default(now())
+}
+
+model Repository {
+  id                  String             @id @default(uuid())
+  owner               String
+  name                String
+
+  installationOwnerId String
+  installationOwner   InstallationOwner  @relation(fields: [installationOwnerId], references: [id])
+
+  createdAt           DateTime           @default(now())
+}
+
