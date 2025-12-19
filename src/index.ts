@@ -28,38 +28,58 @@ app.post("/github/webhook", async (req: any, res) => {
   const event = req.headers["x-github-event"];
 
   if (event === "installation" && req.body.action === "created") {
-
     const installation = req.body.installation;
-const repo = req.body.repositories?.[0];
+    const repo = req.body.repositories?.[0];
 
-console.log({
-  installationId: installation.id,
-  account: typeof installation.account === 'object' ? installation.account.login : installation.account,
-  accountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
-  repositories: req.body.repositories,
-});
+    console.log({
+      installationId: installation.id,
+      account: typeof installation.account === 'object' ? installation.account.login : installation.account,
+      accountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
+      repositories: req.body.repositories,
+    });
 
-await prisma.installationOwner.upsert({
-  where: { githubInstallationId: installation.id },
-  update: {},
-  create: {
-    githubInstallationId: installation.id,
-    githubLogin: typeof installation.account === 'object' ? installation.account.login : installation.account,
-    githubAccountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
-    repositories: {
+    await prisma.installationOwner.upsert({
+      where: { githubInstallationId: installation.id },
+      update: {},
       create: {
-        owner: repo.full_name.split('/')[0],
-        name: repo.full_name.split('/')[1],
+        githubInstallationId: installation.id,
+        githubLogin: typeof installation.account === 'object' ? installation.account.login : installation.account,
+        githubAccountType: typeof installation.account === 'object' ? installation.account.type : installation.accountType,
+        repositories: {
+          create: {
+            owner: repo.full_name.split('/')[0],
+            name: repo.full_name.split('/')[1],
+          },
+        },
       },
-    },
-  },
-});
-
-
+    });
 
     console.log("Client stored:", installation.id);
     return res.sendStatus(200);
   }
+
+  if (event === "pull_request") {
+  const installationId = req.body.installation.id;
+
+  const installationOwner = await prisma.installationOwner.findUnique({
+    where: { githubInstallationId: installationId },
+    include: { repositories: true },
+  });
+
+  if (!installationOwner) {
+    return res.status(401).send("Unknown installation");
+  }
+
+  const pr = req.body.pull_request;
+
+  console.log(
+    `PR #${pr.number} from ${installationOwner.githubLogin}`
+  );
+
+  return res.sendStatus(200);
+}
+  return res.sendStatus(200);
+
 });
 
 
