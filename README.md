@@ -64,3 +64,8 @@ cocoindex update main
 
 to view 
 cocoindex server -ci main
+
+also don't forge to make .env inside /cocoindex and add the pgvector db url
+COCOINDEX_DATABASE_URL=
+
+other wise your are cooked one more time
