@@ -1,57 +1,53 @@
 import OpenAI from "openai";
 import { DiffSummary } from "./diffSummary";
+import { getRelevantContext } from "./contextRetriver";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function generateDocUpdate(
-  diffSummary: DiffSummary,
-  contextBlocks: string[]
+  installationId: number,
+  diffSummary: DiffSummary
 ): Promise<string> {
+  const contextBlocks = await getRelevantContext(diffSummary);
+
   const prompt = `
-You are a technical documentation assistant.
+### PERSONA
+You are a Staff Technical Writer and Senior Software Architect. Your goal is to produce high-quality, developer-facing documentation updates.
 
-You MUST follow these rules strictly:
-1. Only document endpoints or features explicitly mentioned in:
-   - CHANGES IN PULL REQUEST
-   - EXISTING SYSTEM CONTEXT
-2. DO NOT invent functionality, behavior, responses, or intent.
-3. If information is missing or unclear, say:
-   "Details not yet documented."
-4. DO NOT describe endpoints that are not listed as added or modified.
-5. Be factual and conservative. Accuracy is more important than completeness.
+### INPUT DATA
+1. **EXISTING SYSTEM CONTEXT (Codebase Snippets):**
+${contextBlocks.length > 0 ? contextBlocks.join("\n\n---\n\n") : "No direct context found; rely on the PR diff logic."}
 
-EXISTING SYSTEM CONTEXT (ground truth):
-${contextBlocks.length > 0 ? contextBlocks.join("\n\n") : "No existing documentation context available."}
-
-CHANGES IN PULL REQUEST (ground truth):
+2. **PULL REQUEST DIFF SUMMARY:**
 ${JSON.stringify(diffSummary, null, 2)}
 
-TASK:
-Write documentation updates for the user-facing changes.
+### INSTRUCTIONS
+1. **Analyze & Correlate:** Synthesize the "Existing Context" with the "PR Changes." Use your intelligence to explain *how* the new changes integrate into the existing architecture.
+2. **Technical Depth:** If the context shows specific patterns (like error handling, middleware, or specific decorators), ensure the documentation reflects that these patterns were followed or modified.
+3. **Internal vs External:** Distinguish between internal logic changes and user-facing API/feature changes. Focus the documentation on the impact of the change.
+4. **Professional Tone:** Write in a clear, authoritative, and concise technical style (similar to Stripe or AWS docs).
 
-FORMAT REQUIREMENTS:
-- Use Markdown
-- One section per endpoint
-- Include only what can be supported by the provided context
-- Prefer short, precise descriptions
+### OUTPUT FORMAT
+- Use clean Markdown.
+- **Title**: A concise summary of the update.
+- **Description**: A "Why" and "How" for the change.
+- **Details**: Bullet points for specific API changes, logic shifts, or configuration updates.
+- If information is missing, use your reasoning to describe the most likely behavior based on standard engineering principles, but label it as a "Note."
 `;
 
   const response = await client.chat.completions.create({
-    model: "gpt-3.5-turbo",
+    model: "gpt-4-turbo-preview",
     messages: [
-      {
-        role: "system",
-        content:
-          "You generate conservative, factual technical documentation. You never guess.",
+      { 
+        role: "system", 
+        content: "You are an expert technical architect. You synthesize code changes into beautiful, accurate documentation. You bridge the gap between 'what changed' and 'how it works'." 
       },
       { role: "user", content: prompt },
     ],
-    temperature: 0.1,
+    temperature: 0.3,
   });
 
-  const text = response.choices?.[0]?.message?.content;
-
-  return text || "";
+  return response.choices?.[0]?.message?.content || "";
 }
