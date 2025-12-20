@@ -3,7 +3,7 @@ import bodyParser from "body-parser";
 import { getPullRequestFiles, verifySignature } from "./utils/github";
 import { classifyDocRelevance } from "./utils/aiClassifier";
 import { summarizeDiff } from "./utils/diffSummary";
-import { getRelevantContext } from "./utils/contextRetriever";
+// import { getRelevantContext } from "./utils/contextRetriever";
 import { generateDocUpdate } from "./utils/docGenerator";
 import { prisma } from './lib/prisma';
 import { getInstallationOctokit } from "./utils/octokit";
@@ -143,14 +143,17 @@ app.post("/github/webhook", async (req: any, res) => {
       patch: f.patch || "",
     }));
 
-    const result = await classifyDocRelevance(filesForAI);
+    // const result = await classifyDocRelevance(filesForAI);
 
-    if (!result.doc_relevant || result.confidence < 0.6) {
-      console.log(`PR is NOT relevant for docs`);
-      return res.sendStatus(200);
-    }
+    // if (!result.doc_relevant || result.confidence < 0.6) {
+    //   console.log(`PR is NOT relevant for docs`);
+    //   return res.sendStatus(200);
+    // }
 
     console.log(`PR *IS* relevant for docs!`);
+
+    const diffSummary = summarizeDiff(filesForAI);
+    console.log("DIFF SUMMARY:", diffSummary);
 
     return res.sendStatus(200);
   }

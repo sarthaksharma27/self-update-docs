@@ -1,6 +1,7 @@
 export type DiffSummary = {
-  addedEndpoints: string[];
-  modifiedEndpoints: string[];
+  apiChanges: string[];
+  behaviorChanges: string[];
+  configChanges: string[];
   touchedFiles: string[];
 };
 
@@ -9,8 +10,9 @@ export function summarizeDiff(files: {
   status: string;
   patch?: string;
 }[]): DiffSummary {
-  const addedEndpoints = new Set<string>();
-  const modifiedEndpoints = new Set<string>();
+  const apiChanges = new Set<string>();
+  const behaviorChanges = new Set<string>();
+  const configChanges = new Set<string>();
   const touchedFiles = new Set<string>();
 
   for (const file of files) {
@@ -18,40 +20,63 @@ export function summarizeDiff(files: {
 
     if (!file.patch) continue;
 
-    // Split patch into lines
     const lines = file.patch.split("\n");
 
     for (const line of lines) {
-      // Only care about newly added lines
-      if (!line.startsWith("+")) continue;
-
-      // Ignore diff metadata (e.g. +++ b/file.ts)
+      // We only care about actual code changes
+      if (!line.startsWith("+") && !line.startsWith("-")) continue;
       if (line.startsWith("+++")) continue;
+      if (line.startsWith("---")) continue;
 
-      // Match Express-style routes ONLY on added lines
-      const routeRegex =
-        /router\.(get|post|put|delete)\(\s*["'`](.*?)["'`]/i;
+      const content = line.slice(1).trim();
 
-      const match = routeRegex.exec(line);
-      if (!match) continue;
+      /* =========================
+         API / URL CHANGES
+      ========================== */
 
-      const method = match[1].toUpperCase();
-      const path = match[2];
-      const endpoint = `${method} ${path}`;
+      // Match any URL-like string (not Express-specific)
+      const urlRegex = /["'`](\/[a-zA-Z0-9\/\-_:{}]+)["'`]/;
+      const urlMatch = urlRegex.exec(content);
 
-      // If the whole file is new → definitely added
-      if (file.status === "added") {
-        addedEndpoints.add(endpoint);
-      } else {
-        // For modified files, added route = new endpoint
-        addedEndpoints.add(endpoint);
+      if (urlMatch) {
+        const changeType = line.startsWith("+") ? "Added" : "Removed";
+        apiChanges.add(`${changeType} route ${urlMatch[1]}`);
+      }
+
+      /* =========================
+         CONFIG / ENV CHANGES
+      ========================== */
+
+      if (
+        content.includes("process.env.") ||
+        file.filename.toLowerCase().includes("config") ||
+        file.filename.endsWith(".env")
+      ) {
+        const changeType = line.startsWith("+") ? "Added/Updated" : "Removed";
+        configChanges.add(
+          `${changeType} configuration in ${file.filename}`
+        );
+      }
+
+      /* =========================
+         BEHAVIOR CHANGES (heuristic)
+      ========================== */
+
+      // Look for logic-affecting keywords
+      if (
+        /(if\s*\(|throw\s+|return\s+|new\s+|await\s+)/.test(content)
+      ) {
+        behaviorChanges.add(
+          `Logic change in ${file.filename}`
+        );
       }
     }
   }
 
   return {
-    addedEndpoints: Array.from(addedEndpoints),
-    modifiedEndpoints: Array.from(modifiedEndpoints),
+    apiChanges: Array.from(apiChanges),
+    behaviorChanges: Array.from(behaviorChanges),
+    configChanges: Array.from(configChanges),
     touchedFiles: Array.from(touchedFiles),
   };
 }
