@@ -29,7 +29,6 @@ app.post("/github/webhook", async (req: any, res) => {
   const event = req.headers["x-github-event"];
   const installation = req.body.installation;
 
-  // --- INSTALLATION CREATED ---
   if (event === "installation" && req.body.action === "created") {
     const repoData = req.body.repositories?.[0];
 
@@ -41,7 +40,6 @@ app.post("/github/webhook", async (req: any, res) => {
     const repoOwner = repoData.full_name.split("/")[0];
     const repoName = repoData.full_name.split("/")[1];
 
-    // Check if installation for this account + repo already exists
     const existing = await prisma.installationOwner.findFirst({
       where: {
         githubLogin:
@@ -56,7 +54,6 @@ app.post("/github/webhook", async (req: any, res) => {
     });
 
     if (existing) {
-      // Reactivate previous record, update installation ID
       await prisma.installationOwner.update({
         where: { id: existing.id },
         data: {
@@ -70,7 +67,6 @@ app.post("/github/webhook", async (req: any, res) => {
         installation.account.login
       );
     } else {
-      // Create new installation record
       await prisma.installationOwner.create({
         data: {
           githubInstallationId: installation.id,
@@ -97,7 +93,6 @@ app.post("/github/webhook", async (req: any, res) => {
     return res.sendStatus(200);
   }
 
-  // --- INSTALLATION DELETED ---
   if (event === "installation" && req.body.action === "deleted") {
     const installationId = installation.id;
 
@@ -110,7 +105,6 @@ app.post("/github/webhook", async (req: any, res) => {
     return res.sendStatus(200);
   }
 
-  // --- PULL REQUEST ---
   if (event === "pull_request") {
     const installationId = installation.id;
 
