@@ -1,23 +1,29 @@
 import { Worker } from "bullmq";
 import pMap from "p-map";
+import fs from "fs/promises";
+import path from "path";
 import { redis } from "../lib/redis";
 import { getInstallationOctokit } from "../utils/octokit";
-import { isIndexableFile } from "../utils/isIndexableFile";
+
+const BASE_DIR = path.resolve(
+  __dirname,
+  "../../indexed_repos"
+);
 
 new Worker(
   "repo-index",
   async (job) => {
     const { installationId, owner, repo } = job.data;
+
     console.log("Indexing repo:", owner, repo);
 
-    // 1️⃣ Get authenticated Octokit for this installation
     const octokit = getInstallationOctokit(installationId);
 
-    // 2️⃣ Fetch the default branch of the repo
+    // 1️⃣ Get default branch
     const { data: repoData } = await octokit.repos.get({ owner, repo });
     const defaultBranch = repoData.default_branch;
 
-    // 3️⃣ Fetch full repo tree recursively
+    // 2️⃣ Fetch repo tree
     const { data: treeData } = await octokit.git.getTree({
       owner,
       repo,
@@ -25,39 +31,45 @@ new Worker(
       recursive: "1",
     });
 
-    // 4️⃣ Filter indexable files
-    const files = treeData.tree.filter(
-      (f: any) => f.type === "blob" && isIndexableFile(f.path)
+    const repoRoot = path.join(
+      BASE_DIR,
+      `installation_${installationId}`,
+      `${owner}_${repo}`
     );
-    console.log(`Found ${files.length} indexable files.`);
 
-    // 5️⃣ Fetch content of each file concurrently (limit concurrency to avoid rate limits)
+    // 3️⃣ Fetch and write files
     await pMap(
-      files,
-      async (file) => {
+      treeData.tree,
+      async (node: any) => {
+        if (node.type !== "blob") return;
+
         try {
-          const { data: fileData } = await octokit.repos.getContent({
+          const { data } = await octokit.repos.getContent({
             owner,
             repo,
-            path: file.path,
+            path: node.path,
             ref: defaultBranch,
           });
 
-          if ("content" in fileData && fileData.content) {
-            // Decode Base64 content
-            const content = Buffer.from(fileData.content, "base64").toString("utf-8");
-            
-            // Log a preview (first 200 chars) of the file
-            console.log(`File: ${file.path}`);
-            console.log(content.slice(0, 200));
-            console.log("----");
-          }
+          if (!("content" in data) || !data.content) return;
+
+          const filePath = path.join(repoRoot, node.path);
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+          const content = Buffer.from(
+            data.content,
+            "base64"
+          ).toString("utf-8");
+
+          await fs.writeFile(filePath, content, "utf-8");
         } catch (err) {
-          console.warn(`Failed to fetch ${file.path}:`, (err as Error).message);
+          console.warn(`Failed: ${node.path}`);
         }
       },
-      { concurrency: 5 } // safely fetch 5 files at a time
+      { concurrency: 5 }
     );
+
+    console.log("Repo written to disk:", repoRoot);
   },
   {
     connection: redis,
