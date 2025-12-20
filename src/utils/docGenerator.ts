@@ -38,7 +38,7 @@ ${JSON.stringify(diffSummary, null, 2)}
 `;
 
   const response = await client.chat.completions.create({
-    model: "gpt-4-turbo-preview",
+    model: "gpt-4o-mini",
     messages: [
       { 
         role: "system", 
