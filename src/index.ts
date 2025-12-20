@@ -7,6 +7,7 @@ import { summarizeDiff } from "./utils/diffSummary";
 import { generateDocUpdate } from "./utils/docGenerator";
 import { prisma } from './lib/prisma';
 import { getInstallationOctokit } from "./utils/octokit";
+import { enqueueRepoIndexingJob } from "./queues/enqueueRepoIndexingJob";
 
 const app = express();
 const PORT = 8000;
@@ -30,68 +31,72 @@ app.post("/github/webhook", async (req: any, res) => {
   const installation = req.body.installation;
 
   if (event === "installation" && req.body.action === "created") {
-    const repoData = req.body.repositories?.[0];
+  const repoData = req.body.repositories?.[0];
 
-    if (!repoData) {
-      console.warn("No repository info in installation payload");
-      return res.sendStatus(200);
-    }
+  if (!repoData) {
+    console.warn("No repository info in installation payload");
+    return res.sendStatus(200);
+  }
 
-    const repoOwner = repoData.full_name.split("/")[0];
-    const repoName = repoData.full_name.split("/")[1];
+  const repoOwner = repoData.full_name.split("/")[0];
+  const repoName = repoData.full_name.split("/")[1];
 
-    const existing = await prisma.installationOwner.findFirst({
-      where: {
+  const existing = await prisma.installationOwner.findFirst({
+    where: {
+      githubLogin:
+        typeof installation.account === "object"
+          ? installation.account.login
+          : installation.account,
+      repositories: {
+        some: { owner: repoOwner, name: repoName },
+      },
+    },
+    include: { repositories: true },
+  });
+
+  if (existing) {
+    await prisma.installationOwner.update({
+      where: { id: existing.id },
+      data: {
+        githubInstallationId: installation.id,
+        isActive: true,
+        uninstalledAt: null,
+      },
+    });
+    console.log(
+      "Reactivated existing installation for account:",
+      installation.account.login
+    );
+  } else {
+    await prisma.installationOwner.create({
+      data: {
+        githubInstallationId: installation.id,
         githubLogin:
           typeof installation.account === "object"
             ? installation.account.login
             : installation.account,
+        githubAccountType:
+          typeof installation.account === "object"
+            ? installation.account.type
+            : installation.accountType,
+        isActive: true,
         repositories: {
-          some: { owner: repoOwner, name: repoName },
+          create: { owner: repoOwner, name: repoName },
         },
       },
-      include: { repositories: true },
+    });
+    console.log("Created new installation for account:", installation.account.login );
+
+    await enqueueRepoIndexingJob({
+      installationId: installation.id,
+      owner: repoOwner,
+      repo: repoName,
     });
 
-    if (existing) {
-      await prisma.installationOwner.update({
-        where: { id: existing.id },
-        data: {
-          githubInstallationId: installation.id,
-          isActive: true,
-          uninstalledAt: null,
-        },
-      });
-      console.log(
-        "Reactivated existing installation for account:",
-        installation.account.login
-      );
-    } else {
-      await prisma.installationOwner.create({
-        data: {
-          githubInstallationId: installation.id,
-          githubLogin:
-            typeof installation.account === "object"
-              ? installation.account.login
-              : installation.account,
-          githubAccountType:
-            typeof installation.account === "object"
-              ? installation.account.type
-              : installation.accountType,
-          isActive: true,
-          repositories: {
-            create: { owner: repoOwner, name: repoName },
-          },
-        },
-      });
-      console.log(
-        "Created new installation for account:",
-        installation.account.login
-      );
-    }
-
-    return res.sendStatus(200);
   }
+
+  return res.sendStatus(200);
+}
 
   if (event === "installation" && req.body.action === "deleted") {
     const installationId = installation.id;
@@ -154,6 +159,14 @@ app.post("/github/webhook", async (req: any, res) => {
 
     const diffSummary = summarizeDiff(filesForAI);
     console.log("DIFF SUMMARY:", diffSummary);
+
+    // const contextBlocks = await getRelevantContext(diffSummary);
+    // console.log("RELEVANT CONTEXT:", contextBlocks);
+
+    // const docText = await generateDocUpdate(diffSummary, contextBlocks);
+
+    // console.log("GENERATED DOC UPDATE:");
+    // console.log(docText);
 
     return res.sendStatus(200);
   }
