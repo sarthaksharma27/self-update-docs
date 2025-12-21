@@ -20,20 +20,29 @@ function SetupContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!installationId) return;
+  if (!installationId) return;
 
-    fetch(`/api/github/setup?installation_id=${installationId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        // Fallback to empty array to prevent map errors
-        setRepos(data.repositories || []);
+  const interval = setInterval(async () => {
+    try {
+        // const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+    // fetch(`${API_BASE}/api/github/setup?installation_id=${installationId}`);
+      const res = await fetch(
+        `http://localhost:8000/api/github/setup?installation_id=${installationId}`
+      );
+      const data = await res.json();
+
+      if (data.status === "ready") {
+        setRepos(data.repositories);
         setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Fetch error:", err);
-        setLoading(false);
-      });
-  }, [installationId]);
+        clearInterval(interval);
+      }
+    } catch (err) {
+      console.error("Fetch error:", err);
+    }
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, [installationId]);
 
   if (!installationId) {
     return (

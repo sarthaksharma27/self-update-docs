@@ -44,10 +44,14 @@ app.get("/api/github/setup", async (req, res) => {
   });
 
   if (!installationOwner) {
-    return res.status(404).json({ error: "Installation not found" });
+    return res.json({
+      status: "pending",
+      repositories: [],
+    });
   }
 
   return res.json({
+    status: "ready",
     installationId,
     repositories: installationOwner.repositories.map(r => ({
       id: r.id,
@@ -56,6 +60,7 @@ app.get("/api/github/setup", async (req, res) => {
     })),
   });
 });
+
 
 app.post("/github/webhook", async (req: any, res) => {
   const signature = req.headers["x-hub-signature-256"] as string;
@@ -67,70 +72,89 @@ app.post("/github/webhook", async (req: any, res) => {
   const event = req.headers["x-github-event"];
   const installation = req.body.installation;
 
-  if (event === "installation" && req.body.action === "created") {
-  const repoData = req.body.repositories?.[0];
+if (event === "installation" && req.body.action === "created") {
+  const installation = req.body.installation;
+  const repositories = req.body.repositories;
 
-  if (!repoData) {
-    console.warn("No repository info in installation payload");
+  if (!repositories || repositories.length === 0) {
+    console.warn("No repositories in installation payload");
     return res.sendStatus(200);
   }
 
-  const repoOwner = repoData.full_name.split("/")[0];
-  const repoName = repoData.full_name.split("/")[1];
+  const githubLogin =
+    typeof installation.account === "object"
+      ? installation.account.login
+      : installation.account;
 
-  const existing = await prisma.installationOwner.findFirst({
+  const githubAccountType =
+    typeof installation.account === "object"
+      ? installation.account.type
+      : installation.accountType;
+
+  /**
+   * Normalize repos from GitHub payload
+   */
+  const repoData = repositories.map((repo: any) => {
+    const [owner, name] = repo.full_name.split("/");
+    return { owner, name };
+  });
+
+  /**
+   * Check if installation already exists
+   */
+  const existing = await prisma.installationOwner.findUnique({
     where: {
-      githubLogin:
-        typeof installation.account === "object"
-          ? installation.account.login
-          : installation.account,
-      repositories: {
-        some: { owner: repoOwner, name: repoName },
-      },
+      githubInstallationId: installation.id,
     },
-    include: { repositories: true },
   });
 
   if (existing) {
+    /**
+     * Reactivation case (reinstall)
+     * - mark active
+     * - clear uninstall date
+     * - do NOT duplicate repos
+     */
     await prisma.installationOwner.update({
       where: { id: existing.id },
       data: {
-        githubInstallationId: installation.id,
         isActive: true,
         uninstalledAt: null,
       },
     });
+
     console.log(
-      "Reactivated existing installation for account:",
-      installation.account.login
+      "Reactivated installation for account:",
+      githubLogin
     );
-  } else {
-    await prisma.installationOwner.create({
-      data: {
-        githubInstallationId: installation.id,
-        githubLogin:
-          typeof installation.account === "object"
-            ? installation.account.login
-            : installation.account,
-        githubAccountType:
-          typeof installation.account === "object"
-            ? installation.account.type
-            : installation.accountType,
-        isActive: true,
-        repositories: {
-          create: { owner: repoOwner, name: repoName },
+
+    return res.sendStatus(200);
+  }
+
+  /**
+   * Fresh installation
+   */
+  await prisma.installationOwner.create({
+    data: {
+      githubInstallationId: installation.id,
+      githubLogin,
+      githubAccountType,
+      isActive: true,
+      repositories: {
+        createMany: {
+          data: repoData,
         },
       },
-    });
-    console.log("Created new installation for account:", installation.account.login );
+    },
+  });
 
-    // await enqueueRepoIndexingJob({
-    //   installationId: installation.id,
-    //   owner: repoOwner,
-    //   repo: repoName,
-    // });
+  console.log(`Created new installation for ${githubLogin} with ${repoData.length} repositories`);
 
-  }
+  // await enqueueRepoIndexingJob({
+  //   installationId: installation.id,
+  //   owner: repoOwner,
+  //   repo: repoName,
+  // });
 
   return res.sendStatus(200);
 }
