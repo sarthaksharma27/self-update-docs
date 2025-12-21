@@ -1,12 +1,6 @@
 import os
 import cocoindex
 
-# ---------------------------
-# Framework Custom Operations
-# ---------------------------
-
-# LATEST DOCS: Custom functions use the @cocoindex.op namespace.
-# This registers the function in the engine's operation registry.
 @cocoindex.op.function()
 def extract_extension(filename: str) -> str:
     """
@@ -16,13 +10,9 @@ def extract_extension(filename: str) -> str:
     """
     return os.path.splitext(filename)[1]
 
-# ---------------------------
-# Flow Definition
-# ---------------------------
-
 @cocoindex.flow_def(name="CodeEmbedding")
 def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.DataScope):
-    # 1️⃣ Source: Local files
+    # Source: Local files
     data_scope["files"] = flow_builder.add_source(
         cocoindex.sources.LocalFile(
             path=r"C:\Users\hp\X-project\self-update-docs\indexed_repos",
@@ -38,12 +28,12 @@ def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoind
 
     code_embeddings = data_scope.add_collector()
 
-    # 2️⃣ Process each file
+    # Process each file
     with data_scope["files"].row() as file:
         # Transform using the registered custom function
         file["extension"] = file["filename"].transform(extract_extension)
 
-        # 3️⃣ Chunk using Tree-sitter
+        # Chunk using Tree-sitter
         # NOTE: Arguments like language are passed directly to transform()
         file["chunks"] = file["content"].transform(
             cocoindex.functions.SplitRecursively(),
@@ -52,7 +42,7 @@ def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoind
             chunk_overlap=300,
         )
 
-        # 4️⃣ Embed each chunk
+        # Embed each chunk
         with file["chunks"].row() as chunk:
             chunk["embedding"] = chunk["text"].transform(
                 cocoindex.functions.SentenceTransformerEmbed(
@@ -67,7 +57,7 @@ def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoind
                 embedding=chunk["embedding"],
             )
 
-    # 5️⃣ Export to Postgres + pgvector
+    # Export to Postgres + pgvector
     # Use VectorIndexDef as per the updated specification
     code_embeddings.export(
         "code_embeddings",

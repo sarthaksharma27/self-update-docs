@@ -7,7 +7,7 @@ export type DiffSummary = {
   apiChanges: ChangeDetail[];
   behaviorChanges: ChangeDetail[];
   configChanges: ChangeDetail[];
-  generalChanges: ChangeDetail[]; // Added fallback for "other" changes
+  generalChanges: ChangeDetail[]; 
   touchedFiles: string[];
 };
 
@@ -25,8 +25,6 @@ export function summarizeDiff(files: {
   for (const file of files) {
     touchedFiles.add(file.filename);
 
-    // SENIOR TIP: If patch is missing, it might be a binary file or a very large diff.
-    // We should at least log that the file changed.
     if (!file.patch) {
       generalChanges.set(file.filename, {
         summary: `File modified (no patch data available)`,
@@ -42,7 +40,7 @@ export function summarizeDiff(files: {
       if (line.startsWith("+++") || line.startsWith("---")) continue;
 
       const content = line.slice(1).trim();
-      if (!content) continue; // Skip empty changed lines
+      if (!content) continue;
 
       const changePrefix = line.startsWith("+") ? "Added" : "Removed";
       let matched = false;
