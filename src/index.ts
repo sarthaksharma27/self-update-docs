@@ -163,10 +163,10 @@ app.post("/github/webhook", async (req: any, res) => {
     // const contextBlocks = await getRelevantContext(diffSummary);
     // console.log("RELEVANT CONTEXT:", contextBlocks);
 
-    // const docText = await generateDocUpdate(installationId, diffSummary);
+    const docText = await generateDocUpdate(installationId, diffSummary);
 
-    // console.log("GENERATED DOC UPDATE:");
-    // console.log(docText);
+    console.log("GENERATED DOC UPDATE:");
+    console.log(docText);
 
     return res.sendStatus(200);
   }
