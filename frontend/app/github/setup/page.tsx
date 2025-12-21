@@ -1,34 +1,85 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
 
-// 1. Move the logic into a separate sub-component
-function SetupContent() {
+type Repo = {
+  id: string;
+  owner: string;
+  name: string;
+};
+
+export default function GitHubSetupPage() {
   const searchParams = useSearchParams();
   const installationId = searchParams.get("installation_id");
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">GitHub App Setup</h1>
-      <p className="text-zinc-400">
-        Installation ID: <b className="text-white font-mono">{installationId ?? "missing"}</b>
-      </p>
-      <p className="text-zinc-500">
-        If you can see this page after installing the GitHub App,
-        the redirect is working correctly.
-      </p>
-    </div>
-  );
-}
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [mainRepo, setMainRepo] = useState("");
+  const [docsRepo, setDocsRepo] = useState("");
+  const [loading, setLoading] = useState(true);
 
-// 2. Wrap it in Suspense in the main export
-export default function GitHubSetupPage() {
+  useEffect(() => {
+    if (!installationId) return;
+
+    fetch(`/api/github/setup?installation_id=${installationId}`)
+      .then(res => res.json())
+      .then(data => {
+        setRepos(data.repositories);
+        setLoading(false);
+      });
+  }, [installationId]);
+
+  if (!installationId) {
+    return <div style={{ padding: 40 }}>Missing installation_id</div>;
+  }
+
+  if (loading) {
+    return <div style={{ padding: 40 }}>Loading repositories…</div>;
+  }
+
   return (
-    <div className="p-10 bg-black min-h-screen text-white">
-      <Suspense fallback={<div className="font-mono text-zinc-600">Loading installation data...</div>}>
-        <SetupContent />
-      </Suspense>
+    <div style={{ padding: 40 }}>
+      <h1>GitHub App Setup</h1>
+
+      <p>Select which repositories to use.</p>
+
+      <div>
+        <label>Main repository</label><br />
+        <select value={mainRepo} onChange={e => setMainRepo(e.target.value)}>
+          <option value="">Select</option>
+          {repos.map(r => (
+            <option key={r.id} value={r.id}>
+              {r.owner}/{r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <br />
+
+      <div>
+        <label>Docs repository</label><br />
+        <select value={docsRepo} onChange={e => setDocsRepo(e.target.value)}>
+          <option value="">Select</option>
+          {repos.map(r => (
+            <option key={r.id} value={r.id}>
+              {r.owner}/{r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <br />
+
+      <button
+        disabled={!mainRepo || !docsRepo}
+        onClick={() => {
+          console.log("MAIN:", mainRepo, "DOCS:", docsRepo);
+          alert("Selections captured (not saved yet)");
+        }}
+      >
+        Continue
+      </button>
     </div>
   );
 }

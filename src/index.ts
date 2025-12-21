@@ -7,9 +7,21 @@ import { generateDocUpdate } from "./utils/docGenerator";
 import { prisma } from './lib/prisma';
 import { getInstallationOctokit } from "./utils/octokit";
 import { enqueueRepoIndexingJob } from "./queues/enqueueRepoIndexingJob";
+import cors from "cors";
 
 const app = express();
 const PORT = 8000;
+
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",                                                       // for local dev only
+      "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app",   // for prodouction
+    ],
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
 
 app.use(
   bodyParser.json({
@@ -18,6 +30,32 @@ app.use(
     },
   })
 );
+
+app.get("/api/github/setup", async (req, res) => {
+  const installationId = Number(req.query.installation_id);
+
+  if (!installationId) {
+    return res.status(400).json({ error: "Missing installation_id" });
+  }
+
+  const installationOwner = await prisma.installationOwner.findUnique({
+    where: { githubInstallationId: installationId },
+    include: { repositories: true },
+  });
+
+  if (!installationOwner) {
+    return res.status(404).json({ error: "Installation not found" });
+  }
+
+  return res.json({
+    installationId,
+    repositories: installationOwner.repositories.map(r => ({
+      id: r.id,
+      owner: r.owner,
+      name: r.name,
+    })),
+  });
+});
 
 app.post("/github/webhook", async (req: any, res) => {
   const signature = req.headers["x-hub-signature-256"] as string;
@@ -86,11 +124,11 @@ app.post("/github/webhook", async (req: any, res) => {
     });
     console.log("Created new installation for account:", installation.account.login );
 
-    await enqueueRepoIndexingJob({
-      installationId: installation.id,
-      owner: repoOwner,
-      repo: repoName,
-    });
+    // await enqueueRepoIndexingJob({
+    //   installationId: installation.id,
+    //   owner: repoOwner,
+    //   repo: repoName,
+    // });
 
   }
 
