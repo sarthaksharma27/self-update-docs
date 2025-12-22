@@ -22,13 +22,17 @@ function SetupContent() {
   useEffect(() => {
   if (!installationId) return;
 
+  const API_BASE =
+    process.env.NEXT_PUBLIC_API_BASE ??
+    "https://newfoundland-reliance-border-john.trycloudflare.com";
+
+  console.log("Polling backend at:", `${API_BASE}/api/github/setup?installation_id=${installationId}`);
+
   const interval = setInterval(async () => {
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
-      const res = await fetch(
-        `${API_BASE}/api/github/setup?installation_id=${installationId}`
-      );
+      const res = await fetch(`${API_BASE}/api/github/setup?installation_id=${installationId}`);
       const data = await res.json();
+      console.log("Backend response:", data);
 
       if (data.status === "ready") {
         setRepos(data.repositories);
@@ -42,6 +46,7 @@ function SetupContent() {
 
   return () => clearInterval(interval);
 }, [installationId]);
+
 
 
   if (!installationId) {

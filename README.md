@@ -69,3 +69,10 @@ also don't forge to make .env inside /cocoindex and add the pgvector db url
 COCOINDEX_DATABASE_URL=
 
 other wise your are cooked one more time
+
+
+## Frontend 
+
+NEXT_PUBLIC_API_BASE=http://localhost:8000
+to backend url
+

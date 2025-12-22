@@ -32,8 +32,9 @@ app.use(
 );
 
 app.get("/api/github/setup", async (req, res) => {
+  console.log("we get the setup request");
   const installationId = Number(req.query.installation_id);
-
+  
   if (!installationId) {
     return res.status(400).json({ error: "Missing installation_id" });
   }
