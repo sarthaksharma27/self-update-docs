@@ -24,10 +24,9 @@ function SetupContent() {
 
   const interval = setInterval(async () => {
     try {
-        // const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
-    // fetch(`${API_BASE}/api/github/setup?installation_id=${installationId}`);
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
       const res = await fetch(
-        `http://localhost:8000/api/github/setup?installation_id=${installationId}`
+        `${API_BASE}/api/github/setup?installation_id=${installationId}`
       );
       const data = await res.json();
 
@@ -43,6 +42,7 @@ function SetupContent() {
 
   return () => clearInterval(interval);
 }, [installationId]);
+
 
   if (!installationId) {
     return (
