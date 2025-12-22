@@ -7,19 +7,26 @@ import { generateDocUpdate } from "./utils/docGenerator";
 import { prisma } from './lib/prisma';
 import { getInstallationOctokit } from "./utils/octokit";
 import { enqueueRepoIndexingJob } from "./queues/enqueueRepoIndexingJob";
+import authRoutes from "./routes/auth";
+import authCallbackRoutes from "./routes/authCallback";
+import cookieParser from "cookie-parser";
+
 import cors from "cors";
 
 const app = express();
 const PORT = 8000;
 
+app.set('trust proxy', 1); 
+
 app.use(
   cors({
     origin: [
-      "http://localhost:3000",                                                       // for local dev only
-      "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app",   // for prodouction
+      "http://localhost:3000",
+      "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app",
     ],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
+    credentials: true, // Allows browsers to send cookies back and forth
   })
 );
 
@@ -31,37 +38,97 @@ app.use(
   })
 );
 
-app.get("/api/github/setup", async (req, res) => {
-  console.log("we get the setup request");
-  const installationId = Number(req.query.installation_id);
+app.use(cookieParser()); 
+
+app.use("/auth", authRoutes);
+app.use("/auth", authCallbackRoutes);
+
+
+app.get("/github/setup", async (req, res) => {
+  const { installation_id, setup_action } = req.query;
+  const installationId = Number(installation_id);
   
-  if (!installationId) {
-    return res.status(400).json({ error: "Missing installation_id" });
-  }
+  console.log(`Setup Redirect Triggered: Action=${setup_action}, ID=${installationId}`);
 
-  const installationOwner = await prisma.installationOwner.findUnique({
-    where: { githubInstallationId: installationId },
-    include: { repositories: true },
-  });
+  const cookies = req.cookies as { gh_user?: string; gh_account_type?: string };
+  let githubLogin = cookies.gh_user;
+  const githubAccountType = cookies.gh_account_type || "User";
 
-  if (!installationOwner) {
-    return res.json({
-      status: "pending",
-      repositories: [],
+  if (!githubLogin && installationId) {
+    console.warn("Cookie missing. Attempting identity recovery from database...");
+    const recoveredOwner = await prisma.installationOwner.findUnique({
+      where: { githubInstallationId: installationId },
+      select: { githubLogin: true }
     });
+    
+    if (recoveredOwner) {
+      githubLogin = recoveredOwner.githubLogin;
+      console.log(`Identity recovered: ${githubLogin}`);
+    }
   }
 
-  return res.json({
-    status: "ready",
-    installationId,
-    repositories: installationOwner.repositories.map(r => ({
-      id: r.id,
-      owner: r.owner,
-      name: r.name,
-    })),
-  });
+  if (!installationId || isNaN(installationId)) {
+    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=invalid_installation`);
+  }
+
+  if (!githubLogin) {
+    console.error("Critical: Session lost and recovery failed.");
+    return res.redirect(`${process.env.FRONTEND_URL}/login?error=session_lost`);
+  }
+
+  try {
+    await prisma.installationOwner.upsert({
+      where: { githubLogin: githubLogin },
+      update: { 
+        githubInstallationId: installationId,
+        isActive: true,
+        uninstalledAt: null 
+      },
+      create: {
+        githubLogin: githubLogin,
+        githubInstallationId: installationId,
+        githubAccountType: githubAccountType, 
+        isActive: true
+      }
+    });
+
+    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?setup=success&id=${installationId}`);
+  } catch (error) {
+    console.error("Prisma Upsert Error:", error);
+    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=database_sync_failed`);
+  }
 });
 
+app.get("/api/user/repositories", async (req, res) => {
+  const githubLogin = req.cookies.gh_user;
+
+  if (!githubLogin) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const owner = await prisma.installationOwner.findUnique({
+      where: { githubLogin },
+      include: {
+        repositories: {
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!owner) {
+      return res.status(404).json({ error: "Installation not found" });
+    }
+
+    return res.json({
+      repositories: owner.repositories,
+      status: owner.isActive ? "active" : "inactive"
+    });
+  } catch (error) {
+    console.error("Fetch Repos Error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 app.post("/github/webhook", async (req: any, res) => {
   const signature = req.headers["x-hub-signature-256"] as string;

@@ -9,7 +9,7 @@ generator client {
 model InstallationOwner {
   id                   String       @id @default(uuid())
   githubInstallationId Int          @unique
-  githubLogin          String
+  githubLogin          String       @unique
   githubAccountType    String       // User | Organization
 
   isActive              Boolean  @default(true)

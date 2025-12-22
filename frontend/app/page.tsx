@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import { Github, Zap, RefreshCcw, FileText, ArrowRight, Terminal } from 'lucide-react';
 
@@ -23,6 +25,14 @@ const FEATURES = [
 ];
 
 export default function LandingPage() {
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+
+  const handleGithubInstall = () => {
+    if (typeof window !== "undefined") {
+      window.location.href = `${BACKEND_URL}/auth/github`;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-100 font-sans selection:bg-white selection:text-black overflow-x-hidden">
       
@@ -33,14 +43,17 @@ export default function LandingPage() {
         </div>
         <div className="flex items-center gap-4 md:gap-8 text-sm font-medium">
           <a href="https://calendly.com/namban/30min" className="hidden md:block text-zinc-400 hover:text-white transition-colors">Request Early Access</a>
-          <button className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-all text-zinc-200 text-xs md:text-sm">
+          <button 
+            onClick={handleGithubInstall}
+            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-all text-zinc-200 text-xs md:text-sm"
+          >
             <Github className="w-4 h-4" />
             <span>Install GitHub App</span>
           </button>
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* ... (Rest of the JSX remains the same) ... */}
       <main className="max-w-7xl mx-auto px-6 md:px-8 pt-16 md:pt-24 pb-32">
         <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-zinc-800 bg-zinc-900/50 text-[10px] md:text-xs text-zinc-400 mb-8">
@@ -61,7 +74,10 @@ export default function LandingPage() {
           </p>
           
           <div className="flex flex-wrap items-center gap-6">
-            <button className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95">
+            <button 
+              onClick={handleGithubInstall}
+              className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95"
+            >
               Start Building Free
             </button>
             <button className="text-zinc-400 hover:text-white flex items-center gap-2 transition-colors group">
@@ -71,7 +87,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Feature Grid - No Overflow Grid */}
+        {/* Feature Grid */}
         <section className="grid md:grid-cols-3 gap-4 md:gap-6 mt-48">
           {FEATURES.map((f, i) => (
             <div key={i} className="group relative p-8 rounded-2xl border border-zinc-900 bg-zinc-900/20 hover:bg-zinc-900/40 hover:border-zinc-800 transition-all duration-300">
@@ -82,13 +98,12 @@ export default function LandingPage() {
               <p className="text-zinc-500 text-sm leading-relaxed group-hover:text-zinc-400 transition-colors">
                 {f.desc}
               </p>
-              {/* Subtle hover accent */}
               <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
             </div>
           ))}
         </section>
 
-        {/* GitHub Workflow Mockup - Fixed Blur Overflow */}
+        {/* GitHub Workflow Mockup */}
         <section className="mt-32 relative">
           <div className="absolute -inset-4 md:-inset-24 bg-blue-500/10 blur-[80px] md:blur-[120px] rounded-full pointer-events-none opacity-50" />
           
