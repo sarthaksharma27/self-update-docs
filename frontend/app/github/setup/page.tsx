@@ -20,32 +20,47 @@ function SetupContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  if (!installationId) return;
+    if (!installationId) return;
 
-  const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE ??
-    "https://newfoundland-reliance-border-john.trycloudflare.com";
+    const API_BASE =
+      process.env.NEXT_PUBLIC_API_BASE ??
+      "https://newfoundland-reliance-border-john.trycloudflare.com";
 
-  console.log("Polling backend at:", `${API_BASE}/api/github/setup?installation_id=${installationId}`);
+    // Senior Tip: Track if the component is still mounted to prevent memory leaks
+    let isMounted = true;
 
-  const interval = setInterval(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/github/setup?installation_id=${installationId}`);
-      const data = await res.json();
-      console.log("Backend response:", data);
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/github/setup?installation_id=${installationId}`);
+        if (!res.ok) throw new Error("Backend not responding");
+        
+        const data = await res.json();
+        console.log("Polling Backend...", data);
 
-      if (data.status === "ready") {
-        setRepos(data.repositories);
-        setLoading(false);
-        clearInterval(interval);
+        if (data.status === "ready" && isMounted) {
+          setRepos(data.repositories || []);
+          setLoading(false);
+          return true; // Stop polling
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
       }
-    } catch (err) {
-      console.error("Fetch error:", err);
-    }
-  }, 1000);
+      return false; // Keep polling
+    };
 
-  return () => clearInterval(interval);
-}, [installationId]);
+    // Immediate check
+    checkStatus();
+
+    const interval = setInterval(async () => {
+      const shouldStop = await checkStatus();
+      if (shouldStop) clearInterval(interval);
+    }, 2000); // Polling every 2 seconds is safer than 1s to avoid rate limits
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [installationId]);
 
 
 
