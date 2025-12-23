@@ -2,13 +2,16 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LayoutDashboard, Settings, BookOpen, LogOut, Github, ExternalLink } from 'lucide-react';
 import { signOut } from "@/app/actions/auth";
+import { RepoTypeDropdown } from "../components/RepoActions";
 
-// Senior Tip: Define a type for your repository data
+// Senior Tip: Even if your IDE is lagging, defining the specific allowed 
+// strings here ensures your UI logic remains strict.
 interface Repository {
   id: string;
   owner: string;
   name: string;
   createdAt: string;
+  type?: "MAIN" | "DOCS" | "IGNORE"; 
 }
 
 export default async function Dashboard() {
@@ -18,13 +21,13 @@ export default async function Dashboard() {
 
   if (!ghUser) redirect("/");
 
-  // Fetching data server-side
-  // We pass the cookie manually because the server-to-server fetch doesn't include it by default
+  // Senior Tip: We use 'no-store' or revalidate: 0 to ensure that when the user
+  // changes a repo type, a page refresh actually shows the updated state.
   const res = await fetch(`${BACKEND_URL}/api/user/repositories`, {
     headers: {
       Cookie: `gh_user=${ghUser}`
     },
-    next: { revalidate: 0 } // Senior Tip: Disable caching for real-time dashboard data
+    next: { revalidate: 0 }
   });
 
   const data = await res.json();
@@ -35,7 +38,7 @@ export default async function Dashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-64 border-r border-zinc-900 bg-zinc-900/20 p-6 flex flex-col">
         <div className="font-bold tracking-tighter text-xl mb-12 flex items-center gap-2">
-           👉 MANICULE
+            👉 MANICULE
         </div>
         
         <nav className="space-y-2 flex-1">
@@ -75,7 +78,7 @@ export default async function Dashboard() {
         <header className="flex justify-between items-end mb-12">
           <div>
             <h1 className="text-3xl font-medium tracking-tight">Connected Repositories</h1>
-            <p className="text-zinc-500 mt-1">Manage the documentation sync for your GitHub projects.</p>
+            <p className="text-zinc-500 mt-1">Configure how your code and documentation sync.</p>
           </div>
           <button className="bg-white text-black px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-200 transition-colors">
             + New Repository
@@ -88,15 +91,15 @@ export default async function Dashboard() {
             <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Active Repos</p>
             <p className="text-2xl font-semibold">{repositories.length}</p>
           </div>
-          <div className="p-6 rounded-2xl border border-zinc-900 bg-zinc-900/20">
+          <div className="p-6 rounded-2xl border border-zinc-900 bg-zinc-900/20 text-emerald-400">
             <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Sync Status</p>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <p className="text-xl font-medium text-emerald-400">Healthy</p>
+              <p className="text-xl font-medium">Healthy</p>
             </div>
           </div>
           <div className="p-6 rounded-2xl border border-zinc-900 bg-zinc-900/20">
-            <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Total Documentation</p>
+            <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Documentation</p>
             <p className="text-xl font-medium">42 Files</p>
           </div>
         </div>
@@ -115,15 +118,24 @@ export default async function Dashboard() {
                     <p className="text-zinc-500 text-sm">{repo.owner}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                   <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-1 rounded uppercase tracking-widest font-bold">Sync Enabled</span>
-                   <a 
-                    href={`https://github.com/${repo.owner}/${repo.name}`} 
-                    target="_blank" 
-                    className="p-2 text-zinc-600 hover:text-white transition-colors"
-                   >
-                     <ExternalLink className="w-4 h-4" />
-                   </a>
+
+                <div className="flex items-center gap-6">
+                  {/* Dropdown for Main/Docs/Ignore */}
+                  <RepoTypeDropdown 
+                    repoId={repo.id} 
+                    initialType={repo.type || "MAIN"} 
+                  />
+
+                  <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
+                    <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-1 rounded uppercase tracking-widest font-bold">Live Sync</span>
+                    <a 
+                      href={`https://github.com/${repo.owner}/${repo.name}`} 
+                      target="_blank" 
+                      className="p-2 text-zinc-600 hover:text-white transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </div>
                 </div>
               </div>
             ))}
@@ -131,7 +143,6 @@ export default async function Dashboard() {
         ) : (
           <div className="mt-12 rounded-2xl border border-zinc-900 bg-zinc-900/10 h-64 flex flex-col items-center justify-center border-dashed">
             <p className="text-zinc-500 mb-4">No active repositories connected.</p>
-            <button className="text-sm text-blue-400 hover:underline">Install Manicule on a Repository</button>
           </div>
         )}
       </main>
