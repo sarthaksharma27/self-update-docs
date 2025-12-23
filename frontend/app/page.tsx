@@ -1,7 +1,9 @@
-'use client';
-
-import React from 'react';
-import { Github, Zap, RefreshCcw, FileText, ArrowRight, Terminal } from 'lucide-react';
+import { cookies } from "next/headers";
+import Link from 'next/link';
+import { 
+  Github, Zap, RefreshCcw, FileText, 
+  ArrowRight, Terminal, LayoutDashboard 
+} from 'lucide-react';
 
 const FEATURES = [
   {
@@ -24,14 +26,13 @@ const FEATURES = [
   }
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const cookieStore = await cookies();
+  const ghUser = cookieStore.get("gh_user")?.value;
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 
-  const handleGithubInstall = () => {
-    if (typeof window !== "undefined") {
-      window.location.href = `${BACKEND_URL}/auth/github`;
-    }
-  };
+  // Senior Tip: We keep the redirect URL logic in a single place to avoid mismatches.
+  const AUTH_URL = `${BACKEND_URL}/auth/github`;
 
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-100 font-sans selection:bg-white selection:text-black overflow-x-hidden">
@@ -42,18 +43,30 @@ export default function LandingPage() {
           👉 Manicule
         </div>
         <div className="flex items-center gap-4 md:gap-8 text-sm font-medium">
-          <a href="https://calendly.com/namban/30min" className="hidden md:block text-zinc-400 hover:text-white transition-colors">Request Early Access</a>
-          <button 
-            onClick={handleGithubInstall}
-            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-all text-zinc-200 text-xs md:text-sm"
-          >
-            <Github className="w-4 h-4" />
-            <span>Install GitHub App</span>
-          </button>
+          <a href="https://calendly.com/namban/30min" className="hidden md:block text-zinc-400 hover:text-white transition-colors">
+            Request Early Access
+          </a>
+
+          {ghUser ? (
+            <Link 
+              href="/dashboard"
+              className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition-all text-xs md:text-sm font-bold"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Go to Dashboard</span>
+            </Link>
+          ) : (
+            <a 
+              href={AUTH_URL}
+              className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-all text-zinc-200 text-xs md:text-sm"
+            >
+              <Github className="w-4 h-4" />
+              <span>Continue With GitHub </span>
+            </a>
+          )}
         </div>
       </nav>
 
-      {/* ... (Rest of the JSX remains the same) ... */}
       <main className="max-w-7xl mx-auto px-6 md:px-8 pt-16 md:pt-24 pb-32">
         <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-zinc-800 bg-zinc-900/50 text-[10px] md:text-xs text-zinc-400 mb-8">
@@ -74,12 +87,22 @@ export default function LandingPage() {
           </p>
           
           <div className="flex flex-wrap items-center gap-6">
-            <button 
-              onClick={handleGithubInstall}
-              className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95"
-            >
-              Start Building Free
-            </button>
+            {ghUser ? (
+              <Link 
+                href="/dashboard"
+                className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95 flex items-center gap-2"
+              >
+                <LayoutDashboard className="w-5 h-5" />
+                Go to Dashboard
+              </Link>
+            ) : (
+              <a 
+                href={AUTH_URL}
+                className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95"
+              >
+                Start Building Free
+              </a>
+            )}
             <button className="text-zinc-400 hover:text-white flex items-center gap-2 transition-colors group">
               View Demo 
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -106,7 +129,6 @@ export default function LandingPage() {
         {/* GitHub Workflow Mockup */}
         <section className="mt-32 relative">
           <div className="absolute -inset-4 md:-inset-24 bg-blue-500/10 blur-[80px] md:blur-[120px] rounded-full pointer-events-none opacity-50" />
-          
           <div className="relative rounded-2xl border border-zinc-800 bg-zinc-900/30 backdrop-blur-sm p-1 shadow-2xl">
             <div className="rounded-xl border border-zinc-800 bg-black overflow-hidden">
               <div className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between bg-zinc-900/50">
