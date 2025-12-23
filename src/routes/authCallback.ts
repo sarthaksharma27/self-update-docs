@@ -60,10 +60,11 @@ router.get("/github/callback", async (req, res) => {
   });
 
   res.cookie("gh_user", githubLogin, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
+  httpOnly: true,
+  secure: true,      // Required for sameSite: "none"
+  sameSite: "none",  // Allows cross-site cookie usage
+  maxAge: 24 * 60 * 60 * 1000, // Optional: 24 hour expiry
+});
 
   if (installationOwner) {
     return res.redirect(`${process.env.FRONTEND_URL}/dashboard`);

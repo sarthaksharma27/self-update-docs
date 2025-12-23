@@ -10,6 +10,7 @@ import { enqueueRepoIndexingJob } from "./queues/enqueueRepoIndexingJob";
 import authRoutes from "./routes/auth";
 import authCallbackRoutes from "./routes/authCallback";
 import cookieParser from "cookie-parser";
+import { RepositoryType } from "@prisma/client";
 
 import cors from "cors";
 
@@ -18,17 +19,15 @@ const PORT = 8000;
 
 app.set('trust proxy', 1); 
 
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app",
-    ],
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true, // Allows browsers to send cookies back and forth
-  })
-);
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app"
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 
 app.use(
   bodyParser.json({
@@ -47,36 +46,57 @@ app.use("/auth", authCallbackRoutes);
 app.get("/github/setup", async (req, res) => {
   const { installation_id, setup_action } = req.query;
   const installationId = Number(installation_id);
-  
-  console.log(`Setup Redirect Triggered: Action=${setup_action}, ID=${installationId}`);
+  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+  console.log(`[Setup] Triggered: Action=${setup_action}, ID=${installationId}`);
+
+  // 1. Validate Installation ID
+  if (!installationId || isNaN(installationId)) {
+    return res.redirect(`${FRONTEND_URL}/dashboard?error=invalid_installation`);
+  }
 
   const cookies = req.cookies as { gh_user?: string; gh_account_type?: string };
   let githubLogin = cookies.gh_user;
   const githubAccountType = cookies.gh_account_type || "User";
 
-  if (!githubLogin && installationId) {
-    console.warn("Cookie missing. Attempting identity recovery from database...");
-    const recoveredOwner = await prisma.installationOwner.findUnique({
+  // 2. Identity Recovery with Retry Logic
+  // Senior Tip: The webhook might still be writing to the DB. 
+  // We try to find the user, and if they aren't there, we wait 1.5 seconds and try once more.
+  if (!githubLogin) {
+    console.warn(`[Setup] Cookie missing for ID ${installationId}. Attempting recovery...`);
+    
+    let recoveredOwner = await prisma.installationOwner.findUnique({
       where: { githubInstallationId: installationId },
       select: { githubLogin: true }
     });
-    
+
+    if (!recoveredOwner) {
+      console.log("[Setup] First recovery attempt failed. Waiting for webhook sync...");
+      await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5s delay
+      
+      recoveredOwner = await prisma.installationOwner.findUnique({
+        where: { githubInstallationId: installationId },
+        select: { githubLogin: true }
+      });
+    }
+
     if (recoveredOwner) {
       githubLogin = recoveredOwner.githubLogin;
-      console.log(`Identity recovered: ${githubLogin}`);
+      console.log(`[Setup] Identity recovered via DB: ${githubLogin}`);
     }
   }
 
-  if (!installationId || isNaN(installationId)) {
-    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=invalid_installation`);
-  }
-
+  // 3. Final Fallback
+  // If we STILL don't have a login, instead of a "Critical Error", 
+  // we redirect to dashboard. The Dashboard (Next.js) will do its own 
+  // server-side cookie check which is often more stable.
   if (!githubLogin) {
-    console.error("Critical: Session lost and recovery failed.");
-    return res.redirect(`${process.env.FRONTEND_URL}/login?error=session_lost`);
+    console.warn("[Setup] Identity recovery failed after retry. Redirecting to dashboard fallback.");
+    return res.redirect(`${FRONTEND_URL}/dashboard?setup=pending&id=${installationId}`);
   }
 
   try {
+    // 4. Atomic Upsert
     await prisma.installationOwner.upsert({
       where: { githubLogin: githubLogin },
       update: { 
@@ -92,33 +112,92 @@ app.get("/github/setup", async (req, res) => {
       }
     });
 
-    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?setup=success&id=${installationId}`);
+    console.log(`[Setup] Successfully linked ${githubLogin} to installation ${installationId}`);
+    return res.redirect(`${FRONTEND_URL}/dashboard?setup=success&id=${installationId}`);
+    
   } catch (error) {
-    console.error("Prisma Upsert Error:", error);
-    return res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=database_sync_failed`);
+    console.error("[Setup] Prisma Upsert Error:", error);
+    // Even on DB error, we send them to dashboard so they aren't stuck on a white screen
+    return res.redirect(`${FRONTEND_URL}/dashboard?error=sync_delayed`);
   }
 });
 
+app.patch("/api/repositories/:repoId/type", async (req, res) => {
+  const githubLogin = req.cookies.gh_user;
+  const { repoId } = req.params;
+  const { type } = req.body;
+
+  // DEBUG LOGS: Use these to identify if cookies or params are missing in your terminal
+  console.log(`[PATCH] Request received for Repo: ${repoId}`);
+  console.log(`[PATCH] Cookie User: ${githubLogin || "MISSING"}`);
+  console.log(`[PATCH] Body Type: ${type}`);
+
+  // 1. Authentication Check
+  if (!githubLogin) {
+    console.error("[PATCH] Error: No gh_user cookie found in request.");
+    return res.status(401).json({ error: "Unauthorized: No session cookie found" });
+  }
+
+  // 2. Input Validation
+  const validTypes: RepositoryType[] = ["MAIN", "DOCS", "IGNORE"];
+  const upperType = type?.toUpperCase() as RepositoryType;
+
+  if (!validTypes.includes(upperType)) {
+    console.error(`[PATCH] Error: Invalid type received: ${type}`);
+    return res.status(400).json({ error: "Invalid repository type" });
+  }
+
+  try {
+    // 3. Security Check: Ownership Verification
+    const repository = await prisma.repository.findFirst({
+      where: {
+        id: repoId,
+        installationOwner: {
+          githubLogin: githubLogin,
+        },
+      },
+    });
+
+    if (!repository) {
+      console.error(`[PATCH] Error: Repo ${repoId} not found for user ${githubLogin}`);
+      return res.status(404).json({ 
+        error: "Repository not found or access denied",
+        debug: { repoId, githubLogin } 
+      });
+    }
+
+    // 4. Atomic Update
+    const updatedRepo = await prisma.repository.update({
+      where: { id: repoId },
+      data: { type: upperType },
+    });
+
+    console.log(`[PATCH] Success: Updated ${repository.name} to ${upperType}`);
+    
+    return res.json({
+      message: "Repository type updated successfully",
+      repository: updatedRepo,
+    });
+  } catch (error) {
+    console.error("[PATCH] Prisma Error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET route remains the same, but ensure it's below the CORS setup
 app.get("/api/user/repositories", async (req, res) => {
   const githubLogin = req.cookies.gh_user;
-
-  if (!githubLogin) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!githubLogin) return res.status(401).json({ error: "Unauthorized" });
 
   try {
     const owner = await prisma.installationOwner.findUnique({
       where: { githubLogin },
       include: {
-        repositories: {
-          orderBy: { createdAt: 'desc' }
-        }
+        repositories: { orderBy: { createdAt: 'desc' } }
       }
     });
 
-    if (!owner) {
-      return res.status(404).json({ error: "Installation not found" });
-    }
+    if (!owner) return res.status(404).json({ error: "Installation not found" });
 
     return res.json({
       repositories: owner.repositories,
