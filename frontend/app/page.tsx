@@ -43,9 +43,19 @@ export default async function LandingPage() {
           👉 Manicule
         </div>
         <div className="flex items-center gap-4 md:gap-8 text-sm font-medium">
-          <a href="https://calendly.com/namban/30min" className="hidden md:block text-zinc-400 hover:text-white transition-colors">
-            Request Early Access
+         <a
+            href="https://calendly.com/namban/30min"
+            className="hidden md:inline-flex items-center gap-1 text-zinc-400 hover:text-white transition-colors"
+          >
+            <span className="underline underline-offset-4 decoration-zinc-500 hover:decoration-white">
+              Discuss Your Docs
+            </span>
+            <span aria-hidden="true" className="text-sm">
+              ↗
+            </span>
           </a>
+
+
 
           {ghUser ? (
             <Link 
@@ -61,7 +71,7 @@ export default async function LandingPage() {
               className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-all text-zinc-200 text-xs md:text-sm"
             >
               <Github className="w-4 h-4" />
-              <span>Continue With GitHub </span>
+              <span>Continue with GitHub</span>
             </a>
           )}
         </div>
