@@ -46,14 +46,14 @@ export default async function Dashboard() {
             <LayoutDashboard className="w-4 h-4" />
             <span className="text-sm font-medium">Overview</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2 text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-lg">
+          {/* <button className="w-full flex items-center gap-3 px-4 py-2 text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-lg">
             <BookOpen className="w-4 h-4" />
             <span className="text-sm font-medium">My Docs</span>
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2 text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-lg">
+          </button> */}
+          {/* <button className="w-full flex items-center gap-3 px-4 py-2 text-zinc-500 hover:text-white hover:bg-white/5 transition-all rounded-lg">
             <Settings className="w-4 h-4" />
             <span className="text-sm font-medium">Settings</span>
-          </button>
+          </button> */}
         </nav>
 
         <div className="pt-6 border-t border-zinc-900">
@@ -61,7 +61,7 @@ export default async function Dashboard() {
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-emerald-500" />
             <div className="overflow-hidden">
               <p className="text-xs font-medium truncate">{ghUser}</p>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Pro Account</p>
+              {/* <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Pro Account</p> */}
             </div>
           </div>
           <form action={signOut}>
@@ -78,7 +78,7 @@ export default async function Dashboard() {
         <header className="flex justify-between items-end mb-12">
           <div>
             <h1 className="text-3xl font-medium tracking-tight">Connected Repositories</h1>
-            <p className="text-zinc-500 mt-1">Configure how your code and documentation sync.</p>
+            <p className="text-zinc-500 mt-1"> Repositories with live documentation sync enabled</p>
           </div>
           <button className="bg-white text-black px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-200 transition-colors">
             + New Repository
@@ -99,8 +99,8 @@ export default async function Dashboard() {
             </div>
           </div>
           <div className="p-6 rounded-2xl border border-zinc-900 bg-zinc-900/20">
-            <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Documentation</p>
-            <p className="text-xl font-medium">42 Files</p>
+            <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">PRs Generated</p>
+            <p className="text-xl font-medium">0</p>
           </div>
         </div>
 
@@ -127,7 +127,7 @@ export default async function Dashboard() {
                   />
 
                   <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
-                    <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-1 rounded uppercase tracking-widest font-bold">Live Sync</span>
+                    {/* <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-1 rounded uppercase tracking-widest font-bold">Live Sync</span> */}
                     <a 
                       href={`https://github.com/${repo.owner}/${repo.name}`} 
                       target="_blank" 

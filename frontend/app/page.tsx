@@ -45,6 +45,7 @@ export default async function LandingPage() {
               <p className="text-xl md:text-3xl text-zinc-500 leading-tight mb-12 max-w-2xl tracking-tight">
                 Manicule maps your codebase and syncs your documentation with every single commit.
               </p>
+              {/* Your documentation updates itself as your code changes */}
               <div className="flex gap-6">
                 <a href={AUTH_URL} className="bg-white text-black px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform active:scale-95">Connect GitHub</a>
                 <button className="text-zinc-400 hover:text-white flex items-center gap-2 group transition-colors">
