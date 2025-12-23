@@ -1,9 +1,14 @@
+-- CreateEnum
+CREATE TYPE "RepositoryType" AS ENUM ('MAIN', 'DOCS', 'IGNORE');
+
 -- CreateTable
 CREATE TABLE "InstallationOwner" (
     "id" TEXT NOT NULL,
     "githubInstallationId" INTEGER NOT NULL,
     "githubLogin" TEXT NOT NULL,
     "githubAccountType" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "uninstalledAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "InstallationOwner_pkey" PRIMARY KEY ("id")
@@ -14,6 +19,7 @@ CREATE TABLE "Repository" (
     "id" TEXT NOT NULL,
     "owner" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "type" "RepositoryType" NOT NULL DEFAULT 'MAIN',
     "installationOwnerId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -22,6 +28,12 @@ CREATE TABLE "Repository" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "InstallationOwner_githubInstallationId_key" ON "InstallationOwner"("githubInstallationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "InstallationOwner_githubLogin_key" ON "InstallationOwner"("githubLogin");
+
+-- CreateIndex
+CREATE INDEX "Repository_type_idx" ON "Repository"("type");
 
 -- AddForeignKey
 ALTER TABLE "Repository" ADD CONSTRAINT "Repository_installationOwnerId_fkey" FOREIGN KEY ("installationOwnerId") REFERENCES "InstallationOwner"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
