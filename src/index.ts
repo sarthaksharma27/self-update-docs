@@ -216,24 +216,20 @@ app.post("/api/indexing/start", async (req: any, res) => {
     const ghUser = req.cookies?.gh_user;
 
     if (!ghUser) {
-      return res.status(401).json({
-        error: "Unauthorized",
-      });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
+    // FIX 1: We only include 'repositories' because 'installation' isn't a relation in your schema
     const installationOwner = await prisma.installationOwner.findUnique({
-      where: {
-        githubLogin: ghUser,
-      },
-      include: {
-        repositories: true,
+      where: { githubLogin: ghUser },
+      include: { 
+        repositories: true 
       },
     });
 
-    if (!installationOwner) {
-      return res.status(404).json({
-        error: "Installation not found",
-      });
+    // FIX 2: Type Guard. Ensure owner exists AND repositories array is present
+    if (!installationOwner || !installationOwner.repositories) {
+      return res.status(404).json({ error: "Installation not found" });
     }
 
     const repos = installationOwner.repositories;
@@ -241,26 +237,33 @@ app.post("/api/indexing/start", async (req: any, res) => {
     const docsRepos = repos.filter(r => r.type === "DOCS");
 
     if (mainRepos.length !== 1 || docsRepos.length !== 1) {
-      console.warn("Invalid repo configuration detected", {
-        user: ghUser,
-        mainCount: mainRepos.length,
-        docsCount: docsRepos.length,
-      });
-
       return res.status(400).json({
         error: "Configuration Incomplete",
-        message: "To enable the sync engine, please mark exactly one repository as MAIN and one repository as DOCS.",
-        details: {
-          currentMainCount: mainRepos.length,
-          currentDocsCount: docsRepos.length,
-        },
+        message: "Please mark exactly one repository as MAIN and one as DOCS.",
       });
     }
 
     const mainRepo = mainRepos[0];
     const docsRepo = docsRepos[0];
 
-    console.log(`🚀 Initializing Manicule Sync: ${mainRepo.name} -> ${docsRepo.name}`);
+    try {
+      /**
+       * FIX 3: Correct Field Mapping
+       * Based on your schema:
+       * - Use 'githubInstallationId' (from installationOwner)
+       * - Use 'mainRepo.owner' and 'mainRepo.name'
+       */
+      await enqueueRepoIndexingJob({
+        installationId: installationOwner.githubInstallationId, // Corrected from githubId
+        owner: mainRepo.owner,
+        repo: mainRepo.name,
+      });
+      
+      console.log(`✅ Job enqueued: ${mainRepo.name}`);
+    } catch (queueError) {
+      console.error("Queue Error:", queueError);
+      return res.status(503).json({ error: "Queue service unavailable" });
+    }
 
     const successWorkflowMessage = 
       `Manicule is now indexing your main repository (${mainRepo.name}). ` +
@@ -271,19 +274,11 @@ app.post("/api/indexing/start", async (req: any, res) => {
       success: true,
       title: "Pipeline Activated",
       message: successWorkflowMessage,
-      data: {
-        main: { owner: mainRepo.owner, name: mainRepo.name },
-        docs: { owner: docsRepo.owner, name: docsRepo.name },
-        timestamp: new Date().toISOString()
-      }
     });
 
   } catch (error) {
-    console.error("Indexing start validation error:", error);
-    return res.status(500).json({
-      error: "Internal server error",
-      message: "An unexpected error occurred while initializing the sync engine. Please try again in a few moments.",
-    });
+    console.error("Indexing start error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
