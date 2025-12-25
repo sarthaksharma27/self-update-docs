@@ -257,6 +257,7 @@ app.post("/api/indexing/start", async (req: any, res) => {
         installationId: installationOwner.githubInstallationId, // Corrected from githubId
         owner: mainRepo.owner,
         repo: mainRepo.name,
+        repoId: mainRepo.id
       });
       
       console.log(`✅ Job enqueued: ${mainRepo.name}`);

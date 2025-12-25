@@ -4,6 +4,7 @@ export async function enqueueRepoIndexingJob(data: {
   installationId: number;
   owner: string;
   repo: string;
+  repoId: string;
 }) {
   console.log("Enqueueing job for", data.owner, data.repo);
   await repoIndexQueue.add(

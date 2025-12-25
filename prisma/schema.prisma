@@ -12,6 +12,15 @@ enum RepositoryType {
   IGNORE
 }
 
+enum IndexingStatus {
+  IDLE          // Default state, nothing started
+  DOWNLOADING   // Files are being fetched from GitHub to local disk
+  DOWNLOADED    // Files are fully written to disk
+  INDEXING      // CocoIndex docker container is processing the files
+  COMPLETED     // Indexing finished successfully
+  FAILED        // Something went wrong in the pipeline
+}
+
 model InstallationOwner {
   id                   String       @id @default(uuid())
   githubInstallationId Int          @unique
@@ -32,6 +41,11 @@ model Repository {
   name                String
   
   type                RepositoryType     @default(MAIN)
+  
+  // NEW: Tracking the indexing lifecycle
+  indexingStatus      IndexingStatus     @default(IDLE)
+  lastIndexedAt       DateTime?
+  errorMessage        String?            // To store why a failure happened
 
   installationOwnerId String
   installationOwner   InstallationOwner  @relation(fields: [installationOwnerId], references: [id])
@@ -39,4 +53,5 @@ model Repository {
   createdAt           DateTime           @default(now())
 
   @@index([type])
+  @@index([indexingStatus]) // Senior move: Indexing the status for fast dashboard filtering
 }
