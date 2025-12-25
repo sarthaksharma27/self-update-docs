@@ -254,10 +254,11 @@ app.post("/api/indexing/start", async (req: any, res) => {
        * - Use 'mainRepo.owner' and 'mainRepo.name'
        */
       await enqueueRepoIndexingJob({
-        installationId: installationOwner.githubInstallationId, // Corrected from githubId
+        installationId: installationOwner.githubInstallationId,
         owner: mainRepo.owner,
         repo: mainRepo.name,
-        repoId: mainRepo.id
+        repoId: mainRepo.id,
+        installationOwnerId: installationOwner.id
       });
       
       console.log(`✅ Job enqueued: ${mainRepo.name}`);
