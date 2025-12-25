@@ -209,6 +209,85 @@ app.get("/api/user/repositories", async (req, res) => {
   }
 });
 
+// api/indexing/start.ts
+
+app.post("/api/indexing/start", async (req: any, res) => {
+  try {
+    const ghUser = req.cookies?.gh_user;
+
+    if (!ghUser) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
+
+    const installationOwner = await prisma.installationOwner.findUnique({
+      where: {
+        githubLogin: ghUser,
+      },
+      include: {
+        repositories: true,
+      },
+    });
+
+    if (!installationOwner) {
+      return res.status(404).json({
+        error: "Installation not found",
+      });
+    }
+
+    const repos = installationOwner.repositories;
+    const mainRepos = repos.filter(r => r.type === "MAIN");
+    const docsRepos = repos.filter(r => r.type === "DOCS");
+
+    if (mainRepos.length !== 1 || docsRepos.length !== 1) {
+      console.warn("Invalid repo configuration detected", {
+        user: ghUser,
+        mainCount: mainRepos.length,
+        docsCount: docsRepos.length,
+      });
+
+      return res.status(400).json({
+        error: "Configuration Incomplete",
+        message: "To enable the sync engine, please mark exactly one repository as MAIN and one repository as DOCS.",
+        details: {
+          currentMainCount: mainRepos.length,
+          currentDocsCount: docsRepos.length,
+        },
+      });
+    }
+
+    const mainRepo = mainRepos[0];
+    const docsRepo = docsRepos[0];
+
+    console.log(`🚀 Initializing Manicule Sync: ${mainRepo.name} -> ${docsRepo.name}`);
+
+    const successWorkflowMessage = 
+      `Manicule is now indexing your main repository (${mainRepo.name}). ` +
+      `We will automatically generate and sync Pull Requests to your documentation repository (${docsRepo.name}) ` +
+      `whenever new changes are merged into the main branch.`;
+
+    return res.status(200).json({
+      success: true,
+      title: "Pipeline Activated",
+      message: successWorkflowMessage,
+      data: {
+        main: { owner: mainRepo.owner, name: mainRepo.name },
+        docs: { owner: docsRepo.owner, name: docsRepo.name },
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("Indexing start validation error:", error);
+    return res.status(500).json({
+      error: "Internal server error",
+      message: "An unexpected error occurred while initializing the sync engine. Please try again in a few moments.",
+    });
+  }
+});
+
+
 app.post("/github/webhook", async (req: any, res) => {
   const signature = req.headers["x-hub-signature-256"] as string;
 
