@@ -3,58 +3,61 @@ import { pipeline } from "@xenova/transformers";
 import dotenv from 'dotenv';
 import path from 'path';
 
-const envPath = path.join(process.cwd(), 'cocoindex', '.env');
+const envPath = path.resolve(process.cwd(), 'cocoindex', '.env');
 dotenv.config({ path: envPath });
 
-if (!process.env.COCOINDEX_DATABASE_URL) {
-    console.warn(`Warning: COCOINDEX_DATABASE_URL not found at ${envPath}`);
-    console.log("Current working directory:", process.cwd());
+let dbUrl = process.env.COCOINDEX_DATABASE_URL;
+if (dbUrl?.includes('host.docker.internal')) {
+    dbUrl = dbUrl.replace('host.docker.internal', 'localhost');
 }
 
-const pool = new Pool({ 
-    connectionString: process.env.COCOINDEX_DATABASE_URL,
-    max: 10,
-    idleTimeoutMillis: 30000,
-});
+const pool = new Pool({ connectionString: dbUrl });
 
 let embedder: any = null;
-
 async function getEmbedder() {
     if (!embedder) {
-        // Model: all-MiniLM-L6-v2 produces 384-dimensional vectors
         embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
     }
     return embedder;
 }
 
 export async function getRelevantContext(
+    repoId: string, 
     diffSummary: any
 ): Promise<string[]> {
-    const files = Object.keys(diffSummary?.files || {}).join(", ");
-    const summary = diffSummary?.summary || "";
-    const searchString = `Files: ${files}. Summary: ${summary}`;
+    // SENIOR MOVE: If the file is new, searching for the filename returns 0.
+    // We search for the 'summary' and 'intent' to find structurally similar code.
+    const summary = diffSummary?.summary || "Express route implementation";
+    const searchString = `Implementation patterns for: ${summary}`;
     
     try {
         const generateEmbedding = await getEmbedder();
         const output = await generateEmbedding(searchString, { pooling: "mean", normalize: true });
-        
         const queryVector = JSON.stringify(Array.from(output.data));
 
         const query = `
             SELECT code, 1 - (embedding <=> $1) AS similarity
             FROM codeembedding__code_embeddings
+            WHERE repo_id = $2
             ORDER BY embedding <=> $1
-            LIMIT 5;
+            LIMIT 7;
         `;
         
-        const res = await pool.query(query, [queryVector]);
+        const res = await pool.query(query, [queryVector, repoId]);
 
-        return res.rows
-            .filter(row => row.similarity > 0.4) 
+        // SENIOR MOVE: We lower the threshold to 0.35. 
+        // 0.4 is often too strict for "conceptually" similar code.
+        const context = res.rows
+            .filter(row => row.similarity > 0.35) 
             .map(row => row.code);
 
+        // Observability: Log the top score so we can tune the threshold
+        const topScore = res.rows[0]?.similarity || 0;
+        console.log(`[RAG] Top Similarity: ${topScore.toFixed(3)} | Blocks: ${context.length} | Repo: ${repoId}`);
+        console.log('THis is the context from codebase (RAG', context);
+        return context;
     } catch (error) {
-        console.error("Context Retrieval Failed:", error instanceof Error ? error.message : error);
+        console.error("[Context Retrieval Error]", error);
         return [];
     }
 }

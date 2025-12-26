@@ -435,22 +435,25 @@ if (event === "installation" && req.body.action === "created") {
   console.log("Files for AI", filesForAI);
   
 
-  const analysis = await classifyDocRelevance(filesForAI);
+  // const analysis = await classifyDocRelevance(filesForAI);
 
-  // 3. Structured Logging (Crucial for Seniors)
-  console.log(`[PR Analysis] Repo: ${githubRepo.name} | ID: ${internalRepoId}`);
-  console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Conf: ${analysis.confidence}`);
-  console.log(`[PR Analysis] Reason: ${analysis.reason}`);
+  // console.log(`[PR Analysis] Repo: ${githubRepo.name} | ID: ${internalRepoId}`);
+  // console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Conf: ${analysis.confidence}`);
+  // console.log(`[PR Analysis] Reason: ${analysis.reason}`);
 
-  if (!analysis.doc_relevant || analysis.confidence < 0.6) {
-    return res.sendStatus(200);
-  }
+  // if (!analysis.doc_relevant || analysis.confidence < 0.6) {
+  //   return res.sendStatus(200);
+  // }
   
 
-  // const diffSummary = summarizeDiff(filesForAI);
-  // const docText = await generateDocUpdate(internalRepoId, diffSummary);
+  const diffSummary = summarizeDiff(filesForAI);
+  console.log("Diff summary", diffSummary);
+  
+  const docText = await generateDocUpdate(internalRepoId, diffSummary);
 
   console.log(`✅ Processed PR for ${repoOwner}/${repoName} (ID: ${internalRepoId})`);
+  console.log(docText);
+  
   return res.sendStatus(200);
 }
 
