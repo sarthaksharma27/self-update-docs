@@ -373,12 +373,6 @@ if (event === "installation" && req.body.action === "created") {
 
   console.log(`Created new installation for ${githubLogin} with ${repoData.length} repositories`);
 
-  // await enqueueRepoIndexingJob({
-  //   installationId: installation.id,
-  //   owner: repoOwner,
-  //   repo: repoName,
-  // });
-
   return res.sendStatus(200);
 }
 
@@ -395,62 +389,121 @@ if (event === "installation" && req.body.action === "created") {
   }
 
   if (event === "pull_request") {
-    const installationId = installation.id;
+  const { pull_request: pr, repository: githubRepo, installation } = req.body;
 
-    const installationOwner = await prisma.installationOwner.findUnique({
-      where: { githubInstallationId: installationId },
-      include: { repositories: true },
-    });
+  const installationId = installation.id;
+  const repoOwner = githubRepo.owner.login;
+  const repoName = githubRepo.name;
 
-    if (!installationOwner || !installationOwner.isActive) {
-      return res.status(401).send("Inactive installation");
-    }
+  const ownerData = await prisma.installationOwner.findUnique({
+    where: { githubInstallationId: installationId },
+    include: { 
+      repositories: { 
+        where: { 
+          owner: repoOwner,
+          name: repoName,
+          type: "MAIN" 
+        } 
+      } 
+    },
+  });
 
-    if (!installationOwner.repositories || installationOwner.repositories.length === 0) {
-      console.error("No repository associated with this installation");
-      return res.status(400).send("No repository found for installation");
-    }
-
-    const repo = installationOwner.repositories[0];
-    const repoOwner = repo.owner;
-    const repoName = repo.name;
-    const pr = req.body.pull_request;
-
-    const octokit = getInstallationOctokit(installationId);
-
-    const { data: files } = await octokit.pulls.listFiles({
-      owner: repoOwner,
-      repo: repoName,
-      pull_number: pr.number,
-    });
-
-    console.log(files);
-
-    const filesForAI = files.map((f) => ({
-      filename: f.filename,
-      status: f.status,
-      patch: f.patch || "",
-    }));
-
-    // const result = await classifyDocRelevance(filesForAI);
-
-    // if (!result.doc_relevant || result.confidence < 0.6) {
-    //   console.log(`PR is NOT relevant for docs`);
-    //   return res.sendStatus(200);
-    // }
-
-    console.log(`PR *IS* relevant for docs!`);
-
-    const diffSummary = summarizeDiff(filesForAI);
-    console.log("DIFF SUMMARY:", diffSummary);
-
-    const docText = await generateDocUpdate(installationId, diffSummary);
-
-    console.log("GENERATED DOC UPDATE:");
-    console.log(docText);
-
-    return res.sendStatus(200);
+  if (!ownerData || ownerData.repositories.length === 0) {
+    console.log(`[Webhook] Skipping PR: ${repoOwner}/${repoName} is not a MAIN repository.`);
+    return res.sendStatus(200); 
   }
+
+  const internalRepoId = ownerData.repositories[0].id;
+
+  const octokit = getInstallationOctokit(installationId);
+
+  const { data: files } = await octokit.pulls.listFiles({
+    owner: repoOwner,
+    repo: repoName,
+    pull_number: pr.number,
+  });
+
+  console.log(files);
+  
+
+  const filesForAI = files.map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    patch: f.patch || "",
+  }));
+
+  console.log("Files for AI", filesForAI);
+  
+
+  // const { doc_relevant, confidence } = await classifyDocRelevance(filesForAI);
+  // if (!doc_relevant || confidence < 0.6) {
+  //   return res.sendStatus(200);
+  // }
+
+  // const diffSummary = summarizeDiff(filesForAI);
+  // const docText = await generateDocUpdate(internalRepoId, diffSummary);
+
+  console.log(`✅ Processed PR for ${repoOwner}/${repoName} (ID: ${internalRepoId})`);
+  return res.sendStatus(200);
+}
+
+  // if (event === "pull_request") {
+  //   const installationId = installation.id;
+
+  //   const installationOwner = await prisma.installationOwner.findUnique({
+  //     where: { githubInstallationId: installationId },
+  //     include: { repositories: true },
+  //   });
+
+  //   if (!installationOwner || !installationOwner.isActive) {
+  //     return res.status(401).send("Inactive installation");
+  //   }
+
+  //   if (!installationOwner.repositories || installationOwner.repositories.length === 0) {
+  //     console.error("No repository associated with this installation");
+  //     return res.status(400).send("No repository found for installation");
+  //   }
+
+  //   const repo = installationOwner.repositories[0];
+  //   const repoOwner = repo.owner;
+  //   const repoName = repo.name;
+  //   const pr = req.body.pull_request;
+
+  //   const octokit = getInstallationOctokit(installationId);
+
+  //   const { data: files } = await octokit.pulls.listFiles({
+  //     owner: repoOwner,
+  //     repo: repoName,
+  //     pull_number: pr.number,
+  //   });
+
+  //   console.log(files);
+
+  //   const filesForAI = files.map((f) => ({
+  //     filename: f.filename,
+  //     status: f.status,
+  //     patch: f.patch || "",
+  //   }));
+
+  //   const result = await classifyDocRelevance(filesForAI);
+
+  //   if (!result.doc_relevant || result.confidence < 0.6) {
+  //     console.log(`PR is NOT relevant for docs`);
+  //     return res.sendStatus(200);
+  //   }
+
+  //   console.log(`PR *IS* relevant for docs!`);
+
+  //   const diffSummary = summarizeDiff(filesForAI);
+  //   console.log("DIFF SUMMARY:", diffSummary);
+
+  //   const docText = await generateDocUpdate(installationId, diffSummary);
+
+  //   console.log("GENERATED DOC UPDATE:");
+  //   console.log(docText);
+
+  //   return res.sendStatus(200);
+  // }
 });
 
 app.get("/", (_req, res) => res.send("this is sarthak from server"));
