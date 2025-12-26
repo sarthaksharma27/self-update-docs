@@ -13,6 +13,7 @@ import cookieParser from "cookie-parser";
 import { RepositoryType } from "@prisma/client";
 
 import cors from "cors";
+import { DocAutomationService } from "./services/DocAutomationService";
 
 const app = express();
 const PORT = 8000;
@@ -395,36 +396,30 @@ if (event === "installation" && req.body.action === "created") {
   const repoOwner = githubRepo.owner.login;
   const repoName = githubRepo.name;
 
+  // 1. Tenant & Repository Validation
   const ownerData = await prisma.installationOwner.findUnique({
     where: { githubInstallationId: installationId },
     include: { 
       repositories: { 
-        where: { 
-          owner: repoOwner,
-          name: repoName,
-          type: "MAIN" 
-        } 
+        where: { owner: repoOwner, name: repoName, type: "MAIN" } 
       } 
     },
   });
 
   if (!ownerData || ownerData.repositories.length === 0) {
-    console.log(`[Webhook] Skipping PR: ${repoOwner}/${repoName} is not a MAIN repository.`);
+    console.log(`[Webhook] Skipping non-MAIN repository: ${repoOwner}/${repoName}`);
     return res.sendStatus(200); 
   }
 
   const internalRepoId = ownerData.repositories[0].id;
-
   const octokit = getInstallationOctokit(installationId);
 
+  // 2. Data Acquisition
   const { data: files } = await octokit.pulls.listFiles({
     owner: repoOwner,
     repo: repoName,
     pull_number: pr.number,
   });
-
-  console.log(files);
-  
 
   const filesForAI = files.map((f) => ({
     filename: f.filename,
@@ -432,88 +427,57 @@ if (event === "installation" && req.body.action === "created") {
     patch: f.patch || "",
   }));
 
-  console.log("Files for AI", filesForAI);
-  
+  // 3. AI Gatekeeper: Is this PR worth documenting?
+  const analysis = await classifyDocRelevance(filesForAI);
+  console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Reason: ${analysis.reason}`);
 
-  // const analysis = await classifyDocRelevance(filesForAI);
+  if (!analysis.doc_relevant || analysis.confidence < 0.6) {
+    return res.sendStatus(200);
+  }
 
-  // console.log(`[PR Analysis] Repo: ${githubRepo.name} | ID: ${internalRepoId}`);
-  // console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Conf: ${analysis.confidence}`);
-  // console.log(`[PR Analysis] Reason: ${analysis.reason}`);
-
-  // if (!analysis.doc_relevant || analysis.confidence < 0.6) {
-  //   return res.sendStatus(200);
-  // }
-  
-
+  // 4. Content Generation
   const diffSummary = summarizeDiff(filesForAI);
-  console.log("Diff summary", diffSummary);
-  
   const docText = await generateDocUpdate(internalRepoId, diffSummary);
 
-  console.log(`✅ Processed PR for ${repoOwner}/${repoName} (ID: ${internalRepoId})`);
-  console.log(docText);
-  
+  // 5. CROSS-REPO AUTOMATION: Find the Docs Repo
+  const docsRepoRecord = await prisma.repository.findFirst({
+    where: { 
+      installationOwnerId: ownerData.id, 
+      type: "DOCS" 
+    }
+  });
+
+  if (docsRepoRecord) {
+    try {
+      // 6. Execute the Doc Update Service
+      const result = await DocAutomationService.pushUpdateToDocsRepo({
+        installationId,
+        octokit,
+        sourceRepo: repoName,
+        sourcePrNumber: pr.number,
+        docsRepoOwner: docsRepoRecord.owner,
+        docsRepoName: docsRepoRecord.name,
+        docText,
+        filesForAI
+      });
+
+      // 7. Feedback Loop: Post Comment to Original PR
+      await octokit.issues.createComment({
+        owner: repoOwner,
+        repo: repoName,
+        issue_number: pr.number,
+        body: `## 🤖 AI Documentation Proposed\n\nI've generated a documentation update in your docs repository.\n\n**Proposed PR:** ${result.prUrl}\n**Target File:** \`${result.targetPath}\``
+      });
+
+      console.log(`✅ Workflow Success: Proposed docs for PR #${pr.number}`);
+    } catch (error) {
+      console.error(`[Workflow Error] Failed to push docs:`, error);
+      // We still return 200 to GitHub to acknowledge the webhook received
+    }
+  }
+
   return res.sendStatus(200);
 }
-
-  // if (event === "pull_request") {
-  //   const installationId = installation.id;
-
-  //   const installationOwner = await prisma.installationOwner.findUnique({
-  //     where: { githubInstallationId: installationId },
-  //     include: { repositories: true },
-  //   });
-
-  //   if (!installationOwner || !installationOwner.isActive) {
-  //     return res.status(401).send("Inactive installation");
-  //   }
-
-  //   if (!installationOwner.repositories || installationOwner.repositories.length === 0) {
-  //     console.error("No repository associated with this installation");
-  //     return res.status(400).send("No repository found for installation");
-  //   }
-
-  //   const repo = installationOwner.repositories[0];
-  //   const repoOwner = repo.owner;
-  //   const repoName = repo.name;
-  //   const pr = req.body.pull_request;
-
-  //   const octokit = getInstallationOctokit(installationId);
-
-  //   const { data: files } = await octokit.pulls.listFiles({
-  //     owner: repoOwner,
-  //     repo: repoName,
-  //     pull_number: pr.number,
-  //   });
-
-  //   console.log(files);
-
-  //   const filesForAI = files.map((f) => ({
-  //     filename: f.filename,
-  //     status: f.status,
-  //     patch: f.patch || "",
-  //   }));
-
-  //   const result = await classifyDocRelevance(filesForAI);
-
-  //   if (!result.doc_relevant || result.confidence < 0.6) {
-  //     console.log(`PR is NOT relevant for docs`);
-  //     return res.sendStatus(200);
-  //   }
-
-  //   console.log(`PR *IS* relevant for docs!`);
-
-  //   const diffSummary = summarizeDiff(filesForAI);
-  //   console.log("DIFF SUMMARY:", diffSummary);
-
-  //   const docText = await generateDocUpdate(installationId, diffSummary);
-
-  //   console.log("GENERATED DOC UPDATE:");
-  //   console.log(docText);
-
-  //   return res.sendStatus(200);
-  // }
 });
 
 app.get("/", (_req, res) => res.send("this is sarthak from server"));
