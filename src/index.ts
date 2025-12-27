@@ -51,7 +51,6 @@ app.get("/github/setup", async (req, res) => {
 
   console.log(`[Setup] Triggered: Action=${setup_action}, ID=${installationId}`);
 
-  // 1. Validate Installation ID
   if (!installationId || isNaN(installationId)) {
     return res.redirect(`${FRONTEND_URL}/dashboard?error=invalid_installation`);
   }
@@ -60,9 +59,6 @@ app.get("/github/setup", async (req, res) => {
   let githubLogin = cookies.gh_user;
   const githubAccountType = cookies.gh_account_type || "User";
 
-  // 2. Identity Recovery with Retry Logic
-  // Senior Tip: The webhook might still be writing to the DB. 
-  // We try to find the user, and if they aren't there, we wait 1.5 seconds and try once more.
   if (!githubLogin) {
     console.warn(`[Setup] Cookie missing for ID ${installationId}. Attempting recovery...`);
     
@@ -87,17 +83,12 @@ app.get("/github/setup", async (req, res) => {
     }
   }
 
-  // 3. Final Fallback
-  // If we STILL don't have a login, instead of a "Critical Error", 
-  // we redirect to dashboard. The Dashboard (Next.js) will do its own 
-  // server-side cookie check which is often more stable.
   if (!githubLogin) {
     console.warn("[Setup] Identity recovery failed after retry. Redirecting to dashboard fallback.");
     return res.redirect(`${FRONTEND_URL}/dashboard?setup=pending&id=${installationId}`);
   }
 
   try {
-    // 4. Atomic Upsert
     await prisma.installationOwner.upsert({
       where: { githubLogin: githubLogin },
       update: { 
@@ -118,7 +109,6 @@ app.get("/github/setup", async (req, res) => {
     
   } catch (error) {
     console.error("[Setup] Prisma Upsert Error:", error);
-    // Even on DB error, we send them to dashboard so they aren't stuck on a white screen
     return res.redirect(`${FRONTEND_URL}/dashboard?error=sync_delayed`);
   }
 });
@@ -128,18 +118,15 @@ app.patch("/api/repositories/:repoId/type", async (req, res) => {
   const { repoId } = req.params;
   const { type } = req.body;
 
-  // DEBUG LOGS: Use these to identify if cookies or params are missing in your terminal
   console.log(`[PATCH] Request received for Repo: ${repoId}`);
   console.log(`[PATCH] Cookie User: ${githubLogin || "MISSING"}`);
   console.log(`[PATCH] Body Type: ${type}`);
 
-  // 1. Authentication Check
   if (!githubLogin) {
     console.error("[PATCH] Error: No gh_user cookie found in request.");
     return res.status(401).json({ error: "Unauthorized: No session cookie found" });
   }
 
-  // 2. Input Validation
   const validTypes: RepositoryType[] = ["MAIN", "DOCS", "IGNORE"];
   const upperType = type?.toUpperCase() as RepositoryType;
 
@@ -149,7 +136,6 @@ app.patch("/api/repositories/:repoId/type", async (req, res) => {
   }
 
   try {
-    // 3. Security Check: Ownership Verification
     const repository = await prisma.repository.findFirst({
       where: {
         id: repoId,
@@ -167,7 +153,6 @@ app.patch("/api/repositories/:repoId/type", async (req, res) => {
       });
     }
 
-    // 4. Atomic Update
     const updatedRepo = await prisma.repository.update({
       where: { id: repoId },
       data: { type: upperType },
@@ -185,7 +170,6 @@ app.patch("/api/repositories/:repoId/type", async (req, res) => {
   }
 });
 
-// GET route remains the same, but ensure it's below the CORS setup
 app.get("/api/user/repositories", async (req, res) => {
   const githubLogin = req.cookies.gh_user;
   if (!githubLogin) return res.status(401).json({ error: "Unauthorized" });
@@ -210,8 +194,6 @@ app.get("/api/user/repositories", async (req, res) => {
   }
 });
 
-// api/indexing/start.ts
-
 app.post("/api/indexing/start", async (req: any, res) => {
   try {
     const ghUser = req.cookies?.gh_user;
@@ -220,7 +202,6 @@ app.post("/api/indexing/start", async (req: any, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // FIX 1: We only include 'repositories' because 'installation' isn't a relation in your schema
     const installationOwner = await prisma.installationOwner.findUnique({
       where: { githubLogin: ghUser },
       include: { 
@@ -228,7 +209,6 @@ app.post("/api/indexing/start", async (req: any, res) => {
       },
     });
 
-    // FIX 2: Type Guard. Ensure owner exists AND repositories array is present
     if (!installationOwner || !installationOwner.repositories) {
       return res.status(404).json({ error: "Installation not found" });
     }
@@ -245,15 +225,16 @@ app.post("/api/indexing/start", async (req: any, res) => {
     }
 
     const mainRepo = mainRepos[0];
+
+    if (mainRepo.indexingStatus === "COMPLETED") {
+      return res.status(409).json({ 
+        message: "This repository is already indexed." 
+      });
+    }
+
     const docsRepo = docsRepos[0];
 
     try {
-      /**
-       * FIX 3: Correct Field Mapping
-       * Based on your schema:
-       * - Use 'githubInstallationId' (from installationOwner)
-       * - Use 'mainRepo.owner' and 'mainRepo.name'
-       */
       await enqueueRepoIndexingJob({
         installationId: installationOwner.githubInstallationId,
         owner: mainRepo.owner,
@@ -262,7 +243,7 @@ app.post("/api/indexing/start", async (req: any, res) => {
         installationOwnerId: installationOwner.id
       });
       
-      console.log(`✅ Job enqueued: ${mainRepo.name}`);
+      console.log(`Job enqueued: ${mainRepo.name}`);
     } catch (queueError) {
       console.error("Queue Error:", queueError);
       return res.status(503).json({ error: "Queue service unavailable" });
@@ -315,17 +296,11 @@ if (event === "installation" && req.body.action === "created") {
       ? installation.account.type
       : installation.accountType;
 
-  /**
-   * Normalize repos from GitHub payload
-   */
   const repoData = repositories.map((repo: any) => {
     const [owner, name] = repo.full_name.split("/");
     return { owner, name };
   });
 
-  /**
-   * Check if installation already exists
-   */
   const existing = await prisma.installationOwner.findUnique({
     where: {
       githubInstallationId: installation.id,
@@ -333,12 +308,6 @@ if (event === "installation" && req.body.action === "created") {
   });
 
   if (existing) {
-    /**
-     * Reactivation case (reinstall)
-     * - mark active
-     * - clear uninstall date
-     * - do NOT duplicate repos
-     */
     await prisma.installationOwner.update({
       where: { id: existing.id },
       data: {
@@ -355,9 +324,6 @@ if (event === "installation" && req.body.action === "created") {
     return res.sendStatus(200);
   }
 
-  /**
-   * Fresh installation
-   */
   await prisma.installationOwner.create({
     data: {
       githubInstallationId: installation.id,
@@ -396,7 +362,6 @@ if (event === "installation" && req.body.action === "created") {
   const repoOwner = githubRepo.owner.login;
   const repoName = githubRepo.name;
 
-  // 1. Tenant & Repository Validation
   const ownerData = await prisma.installationOwner.findUnique({
     where: { githubInstallationId: installationId },
     include: { 
@@ -414,7 +379,6 @@ if (event === "installation" && req.body.action === "created") {
   const internalRepoId = ownerData.repositories[0].id;
   const octokit = getInstallationOctokit(installationId);
 
-  // 2. Data Acquisition
   const { data: files } = await octokit.pulls.listFiles({
     owner: repoOwner,
     repo: repoName,
@@ -427,7 +391,6 @@ if (event === "installation" && req.body.action === "created") {
     patch: f.patch || "",
   }));
 
-  // 3. AI Gatekeeper: Is this PR worth documenting?
   const analysis = await classifyDocRelevance(filesForAI);
   console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Reason: ${analysis.reason}`);
 
@@ -435,11 +398,9 @@ if (event === "installation" && req.body.action === "created") {
     return res.sendStatus(200);
   }
 
-  // 4. Content Generation
   const diffSummary = summarizeDiff(filesForAI);
   const docText = await generateDocUpdate(internalRepoId, diffSummary);
 
-  // 5. CROSS-REPO AUTOMATION: Find the Docs Repo
   const docsRepoRecord = await prisma.repository.findFirst({
     where: { 
       installationOwnerId: ownerData.id, 
@@ -449,7 +410,6 @@ if (event === "installation" && req.body.action === "created") {
 
   if (docsRepoRecord) {
     try {
-      // 6. Execute the Doc Update Service
       const result = await DocAutomationService.pushUpdateToDocsRepo({
         installationId,
         octokit,
@@ -461,7 +421,6 @@ if (event === "installation" && req.body.action === "created") {
         filesForAI
       });
 
-      // 7. Feedback Loop: Post Comment to Original PR
       await octokit.issues.createComment({
         owner: repoOwner,
         repo: repoName,
@@ -472,7 +431,6 @@ if (event === "installation" && req.body.action === "created") {
       console.log(`✅ Workflow Success: Proposed docs for PR #${pr.number}`);
     } catch (error) {
       console.error(`[Workflow Error] Failed to push docs:`, error);
-      // We still return 200 to GitHub to acknowledge the webhook received
     }
   }
 

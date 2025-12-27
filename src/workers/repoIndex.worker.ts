@@ -2,7 +2,7 @@ import { Worker, Job } from "bullmq";
 import pMap from "p-map";
 import fs from "fs/promises";
 import path from "path";
-import { spawn } from "child_process"; // Added for Docker orchestration
+import { spawn } from "child_process";
 import { redis } from "../lib/redis";
 import { getInstallationOctokit } from "../utils/octokit";
 import { prisma } from "../lib/prisma";
@@ -17,21 +17,15 @@ export interface RepoIndexingData {
 
 const BASE_DIR = path.resolve(__dirname, "../../indexed_repos");
 
-/**
- * Senior Utility: Handles Docker execution as a Promise
- * This ensures the worker 'waits' for the container to finish.
- */
 function runIndexingContainer(repoRoot: string, repoId: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // We map the absolute host path to /workspace inside the container
-    // We pass REPO_ID for multi-tenant isolation in the vector DB
     const dockerArgs = [
       "run", "--rm",
       "-v", `${repoRoot}:/workspace`,
       "--env-file", path.join(process.cwd(), "cocoindex/.env"),
       "-e", `REPO_ID=${repoId}`,
       "cocoindex-indexer:latest",
-      "-f" // Just pass the force flag!
+      "-f"
     ];
 
     console.log(`🐳 Launching container for repo: ${repoId}`);

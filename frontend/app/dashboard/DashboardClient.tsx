@@ -1,3 +1,4 @@
+// dashboard/DashboardClient.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -45,17 +46,27 @@ export default function DashboardClient({
       const result = await startIndexingAction();
       
       if (result?.error) {
-        setStatus({ 
-          type: "error", 
-          title: "Configuration Required",
-          message: "To enable syncing, please mark exactly one repository as MAIN and one as DOCS. This allows Manicule to know where to pull code and where to push documentation." 
-        });
+        // SENIOR LOGIC: Check if it's a conflict (Already Indexed)
+        if (result.status === 409) {
+          setStatus({ 
+            type: "success", // Emerald styling because "Already Indexed" is a positive state
+            title: "Already Indexed",
+            message: result.message || "This repository is already up to date in our system." 
+          });
+        } else {
+          // Standard Configuration Error (400)
+          setStatus({ 
+            type: "error", 
+            title: "Configuration Required",
+            message: result.message || "Please mark exactly one repository as MAIN and one as DOCS." 
+          });
+        }
       } else {
-        // PROFESSIONAL MESSAGE: Highlighting the automated PR workflow
+        // Success State
         setStatus({ 
           type: "success", 
           title: "Pipeline Activated",
-          message: "Manicule has begun indexing your source code. We will now monitor your main repository and automatically generate Pull Requests for your documentation repository as new updates are pushed." 
+          message: "Manicule has begun indexing your source code. We will now monitor your main repository and automatically generate Pull Requests." 
         });
       }
     } catch (err) {
@@ -109,7 +120,7 @@ export default function DashboardClient({
               {status.type === "error" ? (
                 <AlertCircle className="w-5 h-5" />
               ) : (
-                <GitPullRequest className="w-5 h-5" /> // Using a PR icon for the success state
+                <GitPullRequest className="w-5 h-5" /> 
               )}
             </div>
             <div className="flex-1">
@@ -172,6 +183,7 @@ export default function DashboardClient({
                   <a 
                     href={`https://github.com/${repo.owner}/${repo.name}`} 
                     target="_blank" 
+                    rel="noopener noreferrer"
                     className="text-zinc-600 hover:text-white transition-colors"
                   >
                     <ExternalLink className="w-4 h-4" />
