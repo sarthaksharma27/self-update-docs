@@ -1,43 +1,26 @@
-# 1. Use a stable, slim Python base
 FROM python:3.11-slim
 
-# 2. Install only essential runtime system libraries
-# libpq5 is needed for the database connection (psycopg2)
 RUN apt-get update && apt-get install -y \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 3. SENIOR MOVE: Install the CPU-only version of Torch first
-# This is the largest layer (~800MB). By doing it first, we ensure it's 
-# cached and doesn't conflict with other package versions.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# 4. Install the remaining Python dependencies
-# 'psycopg2-binary' prevents the need for a local C-compiler (gcc) inside the container
 RUN pip install --no-cache-dir \
     cocoindex \
     sentence-transformers \
     psycopg2-binary
 
-# 5. SENIOR MOVE: Warm the ML Model Cache during the Build
-# This ensures that when your worker starts the container, the 500MB model 
-# is already on disk and doesn't need to be downloaded from HuggingFace.
 RUN python -c "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
-# 6. Isolated Workspace
-# This folder is where your Node.js worker will mount the actual repo files
 RUN mkdir /workspace
 
-# 7. Final Configuration
 COPY ./cocoindex/main.py ./main.py
 
 ENV PYTHONUNBUFFERED=1
 ENV REPO_PATH=/workspace
 
-# 8. Entrypoint (Exec Form)
-# Using the array syntax allows Docker to send kill signals (SIGTERM)
-# directly to Python for a clean shutdown if a job is cancelled.
 ENTRYPOINT ["cocoindex", "update", "main"]

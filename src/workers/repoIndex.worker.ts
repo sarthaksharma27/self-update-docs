@@ -28,7 +28,7 @@ function runIndexingContainer(repoRoot: string, repoId: string): Promise<void> {
       "-f"
     ];
 
-    console.log(`🐳 Launching container for repo: ${repoId}`);
+    console.log(`Launching container for repo: ${repoId}`);
     
     const child = spawn("docker", dockerArgs);
 
@@ -48,14 +48,13 @@ new Worker(
     const { installationId, owner, repo, repoId, installationOwnerId } = job.data;
 
     if (!repoId || !installationOwnerId) {
-      console.error("❌ Missing critical identifiers for job:", job.id);
+      console.error("Missing critical identifiers for job:", job.id);
       return; 
     }
 
     const repoRoot = path.join(BASE_DIR, `tenant_${installationOwnerId}`, `repo_${repoId}`);
 
     try {
-      // 1️⃣ Download Phase
       await prisma.repository.update({
         where: { id: repoId },
         data: { indexingStatus: "DOWNLOADING" },
@@ -81,13 +80,11 @@ new Worker(
         await fs.writeFile(filePath, Buffer.from(data.content, "base64").toString("utf-8"));
       }, { concurrency: 5 });
 
-      // 2️⃣ Update state to DOWNLOADED
       await prisma.repository.update({
         where: { id: repoId },
         data: { indexingStatus: "DOWNLOADED" },
       });
 
-      // 3️⃣ Indexing Phase (Docker)
       await prisma.repository.update({
         where: { id: repoId },
         data: { indexingStatus: "INDEXING" },
@@ -95,23 +92,19 @@ new Worker(
 
       await runIndexingContainer(repoRoot, repoId);
 
-      // 4️⃣ Final Success State
       await prisma.repository.update({
         where: { id: repoId },
         data: { 
           indexingStatus: "COMPLETED",
           lastIndexedAt: new Date(),
-          errorMessage: null // Clear any previous errors
+          errorMessage: null
         },
       });
 
       console.log(`✅ Indexing Pipeline Finished for ${owner}/${repo}`);
-      
-      // Optional Senior Move: Cleanup disk space after indexing
-      // await fs.rm(repoRoot, { recursive: true, force: true });
 
     } catch (error: any) {
-      console.error(`❌ Worker Error for ${repoId}:`, error);
+      console.error(`Worker Error for ${repoId}:`, error);
       await prisma.repository.update({
         where: { id: repoId },
         data: { 

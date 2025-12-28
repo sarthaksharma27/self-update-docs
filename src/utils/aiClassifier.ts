@@ -13,7 +13,6 @@ interface RelevanceResponse {
 export async function classifyDocRelevance(
   files: { filename: string; status: string; patch: string }[]
 ): Promise<RelevanceResponse> {
-  // 1. Pre-filter: Ignore noise (assets, locks, tests) to save tokens
   const filteredFiles = files.filter((f) => {
     const isIgnored = f.filename.match(/\.(png|jpg|jpeg|gif|svg|json|test\.ts|spec\.ts)$/i);
     return !isIgnored;
@@ -39,7 +38,6 @@ export async function classifyDocRelevance(
   `;
 
   try {
-    // FIXED: Correct path is .chat.completions.create
     const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -52,7 +50,6 @@ export async function classifyDocRelevance(
 
     const result = JSON.parse(response.choices[0].message?.content || "{}");
 
-    // 2. Normalization: Defensive mapping to avoid 'undefined'
     return {
       doc_relevant: Boolean(result.doc_relevant ?? result.docRelevant ?? false),
       confidence: Number(result.confidence ?? 0),

@@ -1,9 +1,8 @@
 import os
 import cocoindex
 
-# We will pass this via Environment Variables in the Docker run command
 REPO_ID = os.getenv("REPO_ID")
-REPO_PATH = "/workspace" # Inside docker, the host folder is mounted here
+REPO_PATH = "/workspace"
 
 @cocoindex.op.function()
 def extract_extension(filename: str) -> str:
@@ -13,7 +12,7 @@ def extract_extension(filename: str) -> str:
 def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.DataScope):
     data_scope["files"] = flow_builder.add_source(
         cocoindex.sources.LocalFile(
-            path=REPO_PATH, # Now dynamic
+            path=REPO_PATH, 
             included_patterns=["*.ts", "*.js", "*.tsx", "*.jsx", "*.py", "*.md", "*.json"],
             excluded_patterns=["**/node_modules", "**/dist", "**/.git", "**/build"],
         )
@@ -37,7 +36,6 @@ def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoind
                 )
             )
 
-            # SENIOR MOVE: Add repo_id to EVERY record for strict isolation
             code_embeddings.collect(
                 repo_id=REPO_ID, 
                 filename=file["filename"],
@@ -49,7 +47,6 @@ def code_embedding_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoind
     code_embeddings.export(
         "code_embeddings",
         cocoindex.targets.Postgres(),
-        # Primary key now includes repo_id
         primary_key_fields=["repo_id", "filename", "location"],
         vector_indexes=[
             cocoindex.VectorIndexDef(

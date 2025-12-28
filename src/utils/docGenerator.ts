@@ -9,7 +9,6 @@ export async function generateDocUpdate(
     repoId: string,
     diffSummary: any
 ): Promise<string> {
-    // 1. Retrieve the isolated context for this specific repository
     const contextBlocks = await getRelevantContext(repoId, diffSummary);
 
     const prompt = `
@@ -41,7 +40,7 @@ ${JSON.stringify(diffSummary, null, 2)}
             },
             { role: "user", content: prompt },
         ],
-        temperature: 0.2, // Lower temperature for more factual documentation
+        temperature: 0.2,
     });
 
     return response.choices?.[0]?.message?.content || "";

@@ -12,18 +12,10 @@ interface AutomationConfig {
   filesForAI: any[];
 }
 
-/**
- * DocAutomationService handles the cross-repository workflow of 
- * moving documentation from the Main repo to the Docs repo.
- */
 export class DocAutomationService {
-  /**
-   * Orchestrates the discovery of the target file and the creation of the PR.
-   */
   static async pushUpdateToDocsRepo(config: AutomationConfig) {
     const { octokit, docsRepoOwner, docsRepoName, filesForAI, docText, sourceRepo, sourcePrNumber } = config;
 
-    // 1. Discover existing docs structure (docs.json)
     let docsConfig = "";
     try {
       const { data: fileData } = await octokit.repos.getContent({
@@ -32,7 +24,6 @@ export class DocAutomationService {
         path: "docs.json",
       });
 
-      // Type narrowing to satisfy the compiler
       if (!Array.isArray(fileData) && "content" in fileData) {
         docsConfig = Buffer.from(fileData.content, 'base64').toString();
       }
@@ -40,13 +31,10 @@ export class DocAutomationService {
       console.log("[DocAutomation] No docs.json found, AI will propose a new path.");
     }
 
-    // 2. Use AI to find where this change belongs
     const targetPath = await determineTargetPath(docsConfig, filesForAI);
 
-    // 3. Git Automation: Branch -> Commit -> PR
     const branchName = `docs/update-${sourcePrNumber}-${Date.now()}`;
     
-    // Get default branch (main/master)
     const { data: repo } = await octokit.repos.get({ owner: docsRepoOwner, repo: docsRepoName });
     const baseBranch = repo.default_branch;
 
@@ -56,7 +44,6 @@ export class DocAutomationService {
       ref: `heads/${baseBranch}`,
     });
 
-    // Create New Branch
     await octokit.git.createRef({
       owner: docsRepoOwner,
       repo: docsRepoName,
@@ -64,7 +51,6 @@ export class DocAutomationService {
       sha: ref.object.sha,
     });
 
-    // Create/Update the File
     await octokit.repos.createOrUpdateFileContents({
       owner: docsRepoOwner,
       repo: docsRepoName,
@@ -74,7 +60,6 @@ export class DocAutomationService {
       branch: branchName,
     });
 
-    // Open the Pull Request
     const { data: newPr } = await octokit.pulls.create({
       owner: docsRepoOwner,
       repo: docsRepoName,

@@ -45,7 +45,6 @@ export function summarizeDiff(files: {
       const changePrefix = line.startsWith("+") ? "Added" : "Removed";
       let matched = false;
 
-      // 1. API Changes
       const urlRegex = /["'`](\/[a-zA-Z0-9\/\-_:{}]+)["'`]/;
       const urlMatch = urlRegex.exec(content);
       if (urlMatch) {
@@ -53,7 +52,6 @@ export function summarizeDiff(files: {
         matched = true;
       }
 
-      // 2. Config Changes (Added YAML/JSON support for docker/config files)
       if (
         content.includes("process.env.") || 
         file.filename.match(/\.(yaml|yml|json|env)$/i) ||
@@ -63,13 +61,11 @@ export function summarizeDiff(files: {
         matched = true;
       }
 
-      // 3. Behavior Changes
       if (/(if\s*\(|throw\s+|return\s+|new\s+|await\s+)/.test(content)) {
         behaviorChanges.set(content, { summary: `Logic change in ${file.filename}`, patchLine: line });
         matched = true;
       }
 
-      // 4. Fallback: If it's a code change but didn't match our filters, keep it anyway
       if (!matched) {
         generalChanges.set(content, { summary: `Line updated in ${file.filename}`, patchLine: line });
       }

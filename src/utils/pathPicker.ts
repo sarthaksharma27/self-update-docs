@@ -32,7 +32,6 @@ export async function determineTargetPath(
       temperature: 0,
     });
 
-    // Senior move: Clean the string in case the AI added backticks or quotes
     return response.choices[0].message?.content?.replace(/[`"']/g, '').trim() || "updates/changelog.md";
   } catch (err) {
     console.error("Path determination failed:", err);

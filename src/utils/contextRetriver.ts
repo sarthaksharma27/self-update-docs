@@ -25,8 +25,6 @@ export async function getRelevantContext(
     repoId: string, 
     diffSummary: any
 ): Promise<string[]> {
-    // SENIOR MOVE: If the file is new, searching for the filename returns 0.
-    // We search for the 'summary' and 'intent' to find structurally similar code.
     const summary = diffSummary?.summary || "Express route implementation";
     const searchString = `Implementation patterns for: ${summary}`;
     
@@ -45,13 +43,10 @@ export async function getRelevantContext(
         
         const res = await pool.query(query, [queryVector, repoId]);
 
-        // SENIOR MOVE: We lower the threshold to 0.35. 
-        // 0.4 is often too strict for "conceptually" similar code.
         const context = res.rows
             .filter(row => row.similarity > 0.35) 
             .map(row => row.code);
 
-        // Observability: Log the top score so we can tune the threshold
         const topScore = res.rows[0]?.similarity || 0;
         console.log(`[RAG] Top Similarity: ${topScore.toFixed(3)} | Blocks: ${context.length} | Repo: ${repoId}`);
         console.log('THis is the context from codebase (RAG', context);
