@@ -37,7 +37,8 @@ export function RepoTypeDropdown({ repoId, initialType }: { repoId: string, init
     setIsOpen(false);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/repositories/${repoId}/type`, {
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/repositories/${repoId}/type`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
