@@ -1,8 +1,77 @@
 import os
 import cocoindex
+import sys
+import time
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-REPO_ID = os.getenv("REPO_ID")
-REPO_PATH = "/workspace"
+# --- CONFIGURATION ---
+# Database URL is still provided via Job Environment Secrets
+DATABASE_URL = os.getenv("COCOINDEX_DATABASE_URL")
+# Defaulting path; the script will find the sub-folder dynamically
+BASE_MOUNT_PATH = "/workspace"
+
+def log(msg):
+    print(msg)
+    sys.stdout.flush()
+
+# --- SENIOR PATTERN: Database Handshake ---
+# This function finds the repo that the worker just marked as 'INDEXING'
+def fetch_pending_repo():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        # RealDictCursor lets us access columns by name: repo['id']
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = "SELECT id, name FROM \"Repository\" WHERE \"indexingStatus\" = 'INDEXING' LIMIT 1"
+            cur.execute(query)
+            return cur.fetchone()
+    except Exception as e:
+        log(f"❌ [DB] Connection failed: {e}")
+        return None
+    finally:
+        if 'conn' in locals(): conn.close()
+
+# --- MOUNT CHECK ---
+def wait_for_storage(path, retries=5, delay=2):
+    for i in range(retries):
+        if os.path.exists(path):
+            return True
+        log(f"⚠️ [SYSTEM] Waiting for mount {path}... ({i+1}/{retries})")
+        time.sleep(delay)
+    return False
+
+# -----------------------------------------------------------------------------
+# EXECUTION LOGIC
+# -----------------------------------------------------------------------------
+
+# 1. Ensure the /workspace drive is actually plugged in
+if not wait_for_storage(BASE_MOUNT_PATH):
+    log(f"❌ [FATAL] Mount point {BASE_MOUNT_PATH} not found. Root: {os.listdir('/')}")
+    sys.exit(1)
+
+# 2. Fetch the work details from Postgres
+repo = fetch_pending_repo()
+if not repo:
+    log("🏁 [FINISH] No repositories found with 'INDEXING' status. Exiting.")
+    sys.exit(0)
+
+REPO_ID = repo['id']
+# Constructing the exact path used by the worker
+# Note: You'll need to pass the tenant_id via DB as well if it's dynamic
+# For now, we search the mount for the specific repo folder
+REPO_PATH = None
+for root, dirs, files in os.walk(BASE_MOUNT_PATH):
+    if f"repo_{REPO_ID}" in root:
+        REPO_PATH = root
+        break
+
+if not REPO_PATH:
+    log(f"❌ [FATAL] Folder for repo_{REPO_ID} not found in {BASE_MOUNT_PATH}")
+    log(f"DEBUG: Visible directories: {os.listdir(BASE_MOUNT_PATH)}")
+    sys.exit(1)
+
+log(f"🚀 [START] Indexing Repo: {repo['name']} ({REPO_ID})")
+log(f"📂 [PATH] Scanning: {REPO_PATH}")
 
 @cocoindex.op.function()
 def extract_extension(filename: str) -> str:
