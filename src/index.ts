@@ -277,7 +277,7 @@ app.post("/github/webhook", async (req: any, res) => {
   const event = req.headers["x-github-event"];
   const installation = req.body.installation;
 
-if (event === "installation" && req.body.action === "created") {
+ if (event === "installation" && req.body.action === "created") {
   const installation = req.body.installation;
   const repositories = req.body.repositories;
 
@@ -399,6 +399,8 @@ if (event === "installation" && req.body.action === "created") {
   }
 
   const diffSummary = summarizeDiff(filesForAI);
+  console.log("[PR Analysis] Diff Summary:", diffSummary);
+  
   const docText = await generateDocUpdate(internalRepoId, diffSummary);
 
   const docsRepoRecord = await prisma.repository.findFirst({
