@@ -6,6 +6,7 @@ export async function enqueueRepoIndexingJob(data: {
   repo: string;
   repoId: string;
   installationOwnerId: string
+  isHybrid: boolean;
 }) {
   console.log("Enqueueing job for", data.owner, data.repo);
   await repoIndexQueue.add(

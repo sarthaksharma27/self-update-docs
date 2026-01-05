@@ -216,42 +216,48 @@ app.post("/api/indexing/start", async (req: any, res) => {
     const repos = installationOwner.repositories;
     const mainRepos = repos.filter(r => r.type === "MAIN");
     const docsRepos = repos.filter(r => r.type === "DOCS");
+    const hybridRepos = repos.filter(r => r.type === "HYBRID");
 
-    if (mainRepos.length !== 1 || docsRepos.length !== 1) {
+    let targetRepo;
+    let isHybrid = false;
+
+    if (hybridRepos.length === 1) {
+      targetRepo = hybridRepos[0];
+      isHybrid = true;
+    } else if (mainRepos.length === 1 && docsRepos.length === 1) {
+      targetRepo = mainRepos[0];
+    } else {
       return res.status(400).json({
         error: "Configuration Incomplete",
-        message: "Please mark exactly one repository as MAIN and one as DOCS.",
+        message: "Please mark exactly one HYBRID repository OR one MAIN and one DOCS repository.",
       });
     }
 
-    const mainRepo = mainRepos[0];
-
-    if (mainRepo.indexingStatus === "COMPLETED") {
+    if (targetRepo.indexingStatus === "COMPLETED") {
       return res.status(409).json({ 
         message: "This repository is already indexed." 
       });
     }
 
-    const docsRepo = docsRepos[0];
-
     try {
       await enqueueRepoIndexingJob({
         installationId: installationOwner.githubInstallationId,
-        owner: mainRepo.owner,
-        repo: mainRepo.name,
-        repoId: mainRepo.id,
-        installationOwnerId: installationOwner.id
+        owner: targetRepo.owner,
+        repo: targetRepo.name,
+        repoId: targetRepo.id,
+        installationOwnerId: installationOwner.id,
+        isHybrid
       });
       
-      console.log(`Job enqueued: ${mainRepo.name}`);
+      console.log(`Job enqueued: ${targetRepo.name}`);
     } catch (queueError) {
       console.error("Queue Error:", queueError);
       return res.status(503).json({ error: "Queue service unavailable" });
     }
 
     const successWorkflowMessage = 
-      `Manicule is now indexing your main repository (${mainRepo.name}). ` +
-      `We will automatically generate and sync Pull Requests to your documentation repository (${docsRepo.name}) ` +
+      `Manicule is now indexing your main repository (${targetRepo.name}). ` +
+      `We will automatically generate and sync Pull Requests to your documentation repository (${docsRepos[0].name}) ` +
       `whenever new changes are merged into the main branch.`;
 
     return res.status(200).json({

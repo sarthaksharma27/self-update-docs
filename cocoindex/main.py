@@ -18,11 +18,18 @@ def log(msg):
 # --- SENIOR PATTERN: Database Handshake ---
 # This function finds the repo that the worker just marked as 'INDEXING'
 def fetch_pending_repo():
+    if not DATABASE_URL:
+        log("❌ [FATAL] COCOINDEX_DATABASE_URL environment variable is missing.")
+        return None
+        
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        # Senior Move: Connect timeout prevents the script from hanging forever if DB is down
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
         # RealDictCursor lets us access columns by name: repo['id']
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            query = "SELECT id, name FROM \"Repository\" WHERE \"indexingStatus\" = 'INDEXING' LIMIT 1"
+            # SENIOR FIX: Prisma uses PascalCase for table names ("Repository").
+            # In Postgres, you MUST use double quotes for PascalCase table names.
+            query = 'SELECT id, name, type FROM "Repository" WHERE "indexingStatus" = \'INDEXING\' LIMIT 1'
             cur.execute(query)
             return cur.fetchone()
     except Exception as e:
@@ -56,9 +63,10 @@ if not repo:
     sys.exit(0)
 
 REPO_ID = repo['id']
+REPO_TYPE = repo.get('type', 'UNKNOWN')
+
+# 3. Path Discovery
 # Constructing the exact path used by the worker
-# Note: You'll need to pass the tenant_id via DB as well if it's dynamic
-# For now, we search the mount for the specific repo folder
 REPO_PATH = None
 for root, dirs, files in os.walk(BASE_MOUNT_PATH):
     if f"repo_{REPO_ID}" in root:
@@ -70,7 +78,7 @@ if not REPO_PATH:
     log(f"DEBUG: Visible directories: {os.listdir(BASE_MOUNT_PATH)}")
     sys.exit(1)
 
-log(f"🚀 [START] Indexing Repo: {repo['name']} ({REPO_ID})")
+log(f"🚀 [START] Indexing {REPO_TYPE} Repo: {repo['name']} ({REPO_ID})")
 log(f"📂 [PATH] Scanning: {REPO_PATH}")
 
 @cocoindex.op.function()

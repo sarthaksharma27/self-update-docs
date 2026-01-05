@@ -15,6 +15,7 @@ export interface RepoIndexingData {
   repo: string;
   repoId: string;
   installationOwnerId: string;
+  isHybrid: boolean;
 }
 
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -52,7 +53,7 @@ async function runIndexingAzure(): Promise<void> {
 new Worker(
   "repo-index",
   async (job: Job<RepoIndexingData>) => {
-    const { installationId, owner, repo, repoId, installationOwnerId } = job.data;
+    const { installationId, owner, repo, repoId, installationOwnerId, isHybrid } = job.data;
 
     if (!repoId || !installationOwnerId) return;
 
@@ -60,7 +61,7 @@ new Worker(
     const repoRoot = path.join(BASE_DIR, relativePath);
 
     try {
-      console.log(`⏱️  Starting Pipeline for ${owner}/${repo}`);
+      console.log(`⏱️  Starting Pipeline for ${owner}/${repo} (Hybrid: ${isHybrid})`);
 
       // 1. Set Status to DOWNLOADING
       await prisma.repository.update({  
@@ -69,9 +70,13 @@ new Worker(
       });
 
       // 2. Pre-flight check: Is the file share actually there?
-      await fs.access(BASE_DIR).catch(() => {
-        throw new Error(`CRITICAL: Storage mount ${BASE_DIR} is not accessible.`);
-      });
+      try {
+      // This will create the folder if it's missing, or do nothing if it exists.
+      await fs.mkdir(BASE_DIR, { recursive: true });
+      console.log(`📂 Storage directory verified: ${BASE_DIR}`);
+    } catch (err) {
+      throw new Error(`CRITICAL: Could not create or access storage at ${BASE_DIR}`);
+    }
 
       const octokit = getInstallationOctokit(installationId);
       const { data: repoData } = await octokit.repos.get({ owner, repo });
@@ -87,6 +92,11 @@ new Worker(
       let fileCount = 0;
       await pMap(treeData.tree, async (node: any) => {
         if (node.type !== "blob") return;
+        
+        // --- SENIOR MOVE: Filter out non-relevant files early ---
+        // If your hybrid repo has 10k files but docs are only in /docs, 
+        // you should eventually filter node.path here to save API quota.
+        
         const { data } = await octokit.repos.getContent({
           owner, repo, path: node.path, ref: repoData.default_branch,
         });
@@ -111,7 +121,7 @@ new Worker(
         await runIndexingAzure();
       } else {
         console.log(`🏠  [LOCAL] Triggering local indexer for repo_${repoId}`);
-        await runIndexingLocal(repoRoot, repoId);
+        await runIndexingLocal(repoRoot, repoId, isHybrid);
       }
 
       // Note: In Prod, we don't mark as 'COMPLETED' here anymore. 
@@ -135,10 +145,35 @@ new Worker(
   { connection: redis, concurrency: IS_PROD ? 5 : 2 }
 );
 
-function runIndexingLocal(repoRoot: string, repoId: string): Promise<void> {
+function runIndexingLocal(repoRoot: string, repoId: string, isHybrid: boolean): Promise<void> {
     return new Promise((resolve, reject) => {
-      const dockerArgs = ["run", "--rm", "-v", `${path.resolve(repoRoot)}:/workspace`, "-e", `REPO_ID=${repoId}`, "cocoindex-indexer:latest", "-f"];
+      const localDbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/manicule_db";
+      const dockerDbUrl = localDbUrl.replace("localhost", "host.docker.internal");
+
+      const dockerArgs = [
+        "run", "--rm", 
+        "-v", `${path.resolve(repoRoot)}:/workspace`, 
+        "-e", `REPO_ID=${repoId}`, 
+        "-e", `IS_HYBRID=${isHybrid}`, 
+        "-e", `COCOINDEX_DATABASE_URL=${dockerDbUrl}`, 
+        "cocoindex-indexer:latest", "-f"
+      ];
+      
+      console.log(`📡 [LOCAL] Injecting DB URL: ${dockerDbUrl}`);
+
       const child = spawn("docker", dockerArgs);
-      child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Exit ${code}`)));
+
+      // Pipe logs so we can see Python errors in our Node console
+      child.stdout.on("data", (data) => console.log(`[DOCKER LOG]: ${data}`));
+      child.stderr.on("data", (data) => console.error(`[DOCKER ERR]: ${data}`));
+
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          console.error(`Docker failed with code ${code}`);
+          reject(new Error(`Exit ${code}`));
+        }
+      });
     });
 }
