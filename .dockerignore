@@ -1,0 +1,23 @@
+# The Big Folders (as we discussed)
+frontend
+node_modules
+
+# Python-specific clean-up
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/venv/
+**/.venv/
+**/env/
+
+# Your logic stays, but these parts of it go
+cocoindex/venv/
+cocoindex/__pycache__/
+
+# Other artifacts
+dist
+build
+.git
+.env
+indexed_repos

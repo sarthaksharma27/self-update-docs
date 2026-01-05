@@ -12,6 +12,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@azure/arm-appcontainers": "^3.0.0",
+    "@azure/identity": "^4.13.0",
     "@octokit/auth-app": "^8.1.2",
     "@octokit/rest": "^22.0.1",
     "@prisma/adapter-pg": "^7.2.0",

@@ -23,7 +23,7 @@ app.set('trust proxy', 1);
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "https://self-update-docs-5z5hszjt2-sarthaks-projects-db83110f.vercel.app"
+    "https://self-update-docs.vercel.app"
   ],
   credentials: true,
   methods: ["GET", "POST", "PATCH", "OPTIONS"],
