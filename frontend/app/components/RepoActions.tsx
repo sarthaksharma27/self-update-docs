@@ -4,12 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Check, Loader2 } from "lucide-react";
 
 // Senior Tip: Align these exactly with your Prisma Enum names
-type RepoType = "MAIN" | "DOCS" | "IGNORE";
+type RepoType = "MAIN" | "DOCS" | "IGNORE" | "HYBRID";
 
 const OPTIONS: { id: RepoType; label: string }[] = [
   { id: "MAIN", label: "Main Project" },
   { id: "DOCS", label: "Documentation" },
   { id: "IGNORE", label: "Ignore / Private" },
+  { id: "HYBRID", label: "Hybrid" },
 ];
 
 export function RepoTypeDropdown({ repoId, initialType }: { repoId: string, initialType: string }) {

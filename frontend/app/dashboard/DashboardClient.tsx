@@ -21,7 +21,7 @@ interface Repository {
   owner: string;
   name: string;
   createdAt: string;
-  type?: "MAIN" | "DOCS" | "IGNORE";
+  type?: "MAIN" | "DOCS" | "IGNORE" | "HYBRID";
 }
 
 export default function DashboardClient({ 
