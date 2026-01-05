@@ -10,6 +10,7 @@ enum RepositoryType {
   MAIN
   DOCS
   IGNORE
+  HYBRID
 }
 
 enum IndexingStatus {
@@ -40,7 +41,7 @@ model Repository {
   owner               String
   name                String
   
-  type                RepositoryType     @default(MAIN)
+  type                RepositoryType     @default(IGNORE)
   
   indexingStatus      IndexingStatus     @default(IDLE)
   lastIndexedAt       DateTime?
