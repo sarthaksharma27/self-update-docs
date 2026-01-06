@@ -1,5 +1,4 @@
 import { Octokit } from "@octokit/rest";
-import { determineTargetPath } from "../utils/pathPicker";
 import path from "path"; 
 
 interface AutomationConfig {
@@ -9,55 +8,30 @@ interface AutomationConfig {
   sourcePrNumber: number;
   docsRepoOwner: string;
   docsRepoName: string;
-  docText: string;
-  filesForAI: any[];
+  docText: string;      // This is now the SURGICALLY MERGED content
+  targetPath: string;   // SENIOR MOVE: Pass the pre-calculated path here
   isHybrid: boolean; 
+  fileSha?: string;
 }
 
 export class DocAutomationService {
   static async pushUpdateToDocsRepo(config: AutomationConfig) {
-    const { octokit, docsRepoOwner, docsRepoName, filesForAI, docText, sourceRepo, sourcePrNumber, isHybrid } = config;
+    const { 
+      octokit, 
+      docsRepoOwner, 
+      docsRepoName, 
+      docText, 
+      sourceRepo, 
+      sourcePrNumber, 
+      targetPath // Use the path passed from index.ts
+    } = config;
 
     console.log(`\n[🚀 DocAutomationService] Starting push for PR #${sourcePrNumber}`);
-    console.log(`[Config] Hybrid Mode: ${isHybrid} | Target: ${docsRepoOwner}/${docsRepoName}`);
-
-    // SENIOR MOVE: Determine the subfolder. 
-    const docsRoot = isHybrid ? "docs" : "";
-    const configPath = path.join(docsRoot, "docs.json").replace(/\\/g, '/');
-
-    console.log(`[Pathing] Documentation Root: "${docsRoot || "root"}"`);
-    console.log(`[Pathing] Looking for Mintlify config at: "${configPath}"`);
-
-    let docsConfig = "";
-    try {
-      const { data: fileData } = await octokit.repos.getContent({
-        owner: docsRepoOwner,
-        repo: docsRepoName,
-        path: configPath,
-      });
-
-      if (!Array.isArray(fileData) && "content" in fileData) {
-        docsConfig = Buffer.from(fileData.content, 'base64').toString();
-        console.log(`[GitHub] ✅ Successfully loaded docs.json (${docsConfig.length} bytes)`);
-      }
-    } catch (e) {
-      console.log(`[GitHub] ⚠️ No docs.json found at ${configPath}. AI will rely on file names only.`);
-    }
-
-    // 1. Determine the path suggested by AI
-    console.log(`[AI] Asking pathPicker to suggest a target file...`);
-    const suggestedPath = await determineTargetPath(docsConfig, filesForAI);
-    
-    console.log(`[AI] 🤖 AI Suggestion: "${suggestedPath}"`);
-
-    // 2. Final Path Construction
-    const finalTargetPath = path.join(docsRoot, suggestedPath).replace(/\\/g, '/');
-    console.log(`[Pathing] 📍 Final Computed Path: "${finalTargetPath}"`);
+    console.log(`[Target] Writing to: ${docsRepoOwner}/${docsRepoName} at path: ${targetPath}`);
 
     const branchName = `docs/update-${sourcePrNumber}-${Date.now()}`;
     
-    // --- Git Handshake Logs ---
-    console.log(`[GitHub] Fetching repo default branch...`);
+    // --- Git Handshake ---
     const { data: repo } = await octokit.repos.get({ owner: docsRepoOwner, repo: docsRepoName });
     const baseBranch = repo.default_branch;
 
@@ -75,30 +49,31 @@ export class DocAutomationService {
       sha: ref.object.sha,
     });
 
-    // 3. Update File
-    console.log(`[GitHub] Uploading file content to "${finalTargetPath}" on branch "${branchName}"...`);
+    // 3. Update File (Atomic Write)
+    // Because docText is already merged by the AI, we just write it.
+    console.log(`[GitHub] Uploading surgically merged content to "${targetPath}"...`);
     await octokit.repos.createOrUpdateFileContents({
       owner: docsRepoOwner,
       repo: docsRepoName,
-      path: finalTargetPath,
-      message: `docs: update from ${sourceRepo} PR #${sourcePrNumber}`,
+      path: targetPath,
+      message: `docs: surgical update from ${sourceRepo} PR #${sourcePrNumber}`,
       content: Buffer.from(docText).toString("base64"),
       branch: branchName,
+      sha: config.fileSha, // Use existing SHA if updating
     });
 
     // 4. Create PR
-    console.log(`[GitHub] Opening Pull Request...`);
     const { data: newPr } = await octokit.pulls.create({
       owner: docsRepoOwner,
       repo: docsRepoName,
       title: `Docs Update: ${sourceRepo} #${sourcePrNumber}`,
       head: branchName,
       base: baseBranch,
-      body: `Automated documentation update for ${sourceRepo} PR #${sourcePrNumber}.\n\nThis update targets: \`${finalTargetPath}\``,
+      body: `Automated surgical documentation update for ${sourceRepo} PR #${sourcePrNumber}.\n\nThis update targets: \`${targetPath}\``,
     });
 
     console.log(`[DocAutomationService] ✅ Process complete. PR: ${newPr.html_url}`);
 
-    return { prUrl: newPr.html_url, targetPath: finalTargetPath, prNumber: newPr.number };
+    return { prUrl: newPr.html_url, targetPath, prNumber: newPr.number };
   }
 }

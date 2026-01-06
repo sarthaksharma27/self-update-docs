@@ -1,47 +1,42 @@
 import OpenAI from "openai";
 import { getRelevantContext } from "./contextRetriver";
 
-const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function generateDocUpdate(
-    repoId: string,
-    diffSummary: any
+  repoId: string,
+  diffSummary: any,
+  existingDocContent: string = ""
 ): Promise<string> {
-    const contextBlocks = await getRelevantContext(repoId, diffSummary);
+  const contextBlocks = await getRelevantContext(repoId, diffSummary);
+  const isUpdate = existingDocContent.length > 0;
 
-    const prompt = `
+  const prompt = `
 ### PERSONA
-You are a Staff Technical Writer and Senior Software Architect.
+Staff Technical Writer. Expertise: MDX, Mintlify, Stripe-style API docs.
 
-### INPUT DATA
-1. **EXISTING SYSTEM CONTEXT (Codebase Snippets):**
-${contextBlocks.length > 0 ? contextBlocks.join("\n\n---\n\n") : "No direct context found; rely on the PR diff logic."}
+### TASK
+${isUpdate ? "SURGICALLY EDIT existing MDX documentation." : "CREATE NEW MDX documentation."}
 
-2. **PULL REQUEST DIFF SUMMARY:**
-${JSON.stringify(diffSummary, null, 2)}
+### INPUT
+1. **EXISTING MDX:** \n${isUpdate ? existingDocContent : "EMPTY"}
+2. **CODE CONTEXT:** \n${contextBlocks.join("\n---\n")}
+3. **PR DIFF:** \n${JSON.stringify(diffSummary)}
 
-### INSTRUCTIONS
-1. **Synthesize:** Explain how these changes fit into the existing architecture.
-2. **Professional Tone:** Write in a clear technical style (Stripe/AWS style).
-
-### OUTPUT FORMAT
-- Markdown format.
-- **Title**, **Description**, and **Details** (bullet points).
+### RULES
+- OUTPUT FULL MDX CONTENT ONLY.
+- DO NOT add "PR summaries" or "AI generated" text.
+- If /upload changed to /upload/v2, update the existing path in the MDX.
+- Preserve all existing MDX imports and manual explanations.
+- Return raw MDX. No conversation. No backticks.
 `;
 
-    const response = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-            { 
-                role: "system", 
-                content: "You are an expert technical architect. You bridge the gap between 'what changed' and 'how it works'." 
-            },
-            { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-    });
+  const response = await client.chat.completions.create({
+    model: "gpt-4o", // Senior Tip: Always use the higher model for surgical edits
+    messages: [{ role: "system", content: "You are a precise technical editor." }, { role: "user", content: prompt }],
+    temperature: 0,
+  });
 
-    return response.choices?.[0]?.message?.content || "";
+  let content = response.choices?.[0]?.message?.content || "";
+  return content.replace(/^```[a-z]*\n/i, "").replace(/\n```$/i, "").trim();
 }

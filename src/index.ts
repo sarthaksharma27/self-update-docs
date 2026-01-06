@@ -14,6 +14,8 @@ import { RepositoryType } from "@prisma/client";
 
 import cors from "cors";
 import { DocAutomationService } from "./services/DocAutomationService";
+import { determineTargetPath } from "./utils/pathPicker";
+import path from "path";
 
 const app = express();
 const PORT = 8000;
@@ -361,119 +363,101 @@ app.post("/github/webhook", async (req: any, res) => {
     return res.sendStatus(200);
   }
 
-  if (event === "pull_request") {
-  const { action, pull_request: pr, repository: githubRepo, installation } = req.body;
+ if (event === "pull_request") {
+    const { action, pull_request: pr, repository: githubRepo, installation } = req.body;
 
-  const isBotPR = pr.user.type === "Bot" || pr.head.ref.startsWith("docs/update-");
-  
-  if (isBotPR) {
-    console.log(`[Webhook] 🤖 Bot-generated PR detected (#${pr.number}). Skipping to prevent infinite loop.`);
-    return res.sendStatus(200);
-  }
-
-  // Trace 1: Entry point
-  console.log(`\n[📡 Webhook Received] Action: ${action} | Repo: ${githubRepo.full_name} | PR: #${pr.number}`);
-
-  if (!["opened", "synchronize"].includes(action)) {
-    console.log(`[Webhook] Ignoring action: ${action}`);
-    return res.sendStatus(200);
-  }
-
-  const installationId = installation.id;
-  const repoOwner = githubRepo.owner.login;
-  const repoName = githubRepo.name;
-
-  // Trace 2: Database Lookup
-  console.log(`[DB] Looking up installation owner for ID: ${installationId}...`);
-  const ownerData = await prisma.installationOwner.findUnique({
-    where: { githubInstallationId: installationId },
-    include: { 
-      repositories: { 
-        where: { 
-          owner: repoOwner, 
-          name: repoName, 
-          type: { in: ["MAIN", "HYBRID"] } 
-        } 
-      } 
-    },
-  });
-
-  if (!ownerData || ownerData.repositories.length === 0) {
-    console.log(`[Webhook] ❌ Skipping: Repo ${repoOwner}/${repoName} is NOT registered as MAIN or HYBRID.`);
-    return res.sendStatus(200); 
-  }
-
-  const triggeringRepo = ownerData.repositories[0];
-  const internalRepoId = triggeringRepo.id; 
-  const isHybrid = triggeringRepo.type === "HYBRID";
-  
-  // Trace 3: Identity Confirmed
-  console.log(`[Webhook] ✅ Found Registered Repo. Type: ${triggeringRepo.type} | ID: ${internalRepoId}`);
-
-  const octokit = getInstallationOctokit(installationId);
-
-  // Trace 4: GitHub File Fetching
-  console.log(`[GitHub] Fetching file list for PR #${pr.number}...`);
-  const { data: files } = await octokit.pulls.listFiles({
-    owner: repoOwner,
-    repo: repoName,
-    pull_number: pr.number,
-  });
-
-  const filesForAI = files.map((f) => ({
-    filename: f.filename,
-    status: f.status,
-    patch: f.patch || "",
-  }));
-  console.log(`[GitHub] Retrieved ${filesForAI.length} files.`);
-
-  // Trace 5: AI Relevance
-  console.log(`[AI] Running Relevance Analysis...`);
-  const analysis = await classifyDocRelevance(filesForAI);
-  console.log(`[AI] Relevant: ${analysis.doc_relevant} | Confidence: ${analysis.confidence} | Reason: ${analysis.reason}`);
-
-  if (!analysis.doc_relevant || analysis.confidence < 0.6) {
-    console.log(`[AI] ⏩ Skipping doc generation: Not relevant enough.`);
-    return res.sendStatus(200);
-  }
-
-  const diffSummary = summarizeDiff(filesForAI);
-  console.log("[AI] Diff Summary Generated.");
-  
-  const docText = await generateDocUpdate(internalRepoId, diffSummary);
-  console.log(`[AI] Doc Update Content Generated (${docText.length} chars).`);
-
-  // Trace 6: Routing Logic
-  let targetOwner: string;
-  let targetName: string;
-
-  if (isHybrid) {
-    console.log(`[Route] 🔄 HYBRID Mode detected. Target is SAME repo: ${repoOwner}/${repoName}`);
-    targetOwner = repoOwner;
-    targetName = repoName;
-  } else {
-    console.log(`[Route] 🛤️ MAIN Mode detected. Searching for separate DOCS repo...`);
-    const docsRepoRecord = await prisma.repository.findFirst({
-      where: { 
-        installationOwnerId: ownerData.id, 
-        type: "DOCS" 
-      }
-    });
-
-    if (!docsRepoRecord) {
-      console.error(`[Route] ❌ Error: Standard Mode active but no DOCS repo record found in DB.`);
+    // --- 1. PREVENT INFINITE LOOP ---
+    const isBotPR = pr.user.type === "Bot" || pr.head.ref.startsWith("docs/update-");
+    if (isBotPR) {
+      console.log(`[Webhook] 🤖 Ignoring Bot PR #${pr.number}`);
       return res.sendStatus(200);
     }
 
-    targetOwner = docsRepoRecord.owner;
-    targetName = docsRepoRecord.name;
-    console.log(`[Route] Found Target DOCS Repo: ${targetOwner}/${targetName}`);
-  }
+    if (!["opened", "synchronize"].includes(action)) return res.sendStatus(200);
 
-  // Trace 7: Final Execution
-  if (targetOwner && targetName) {
+    const installationId = installation.id;
+    const repoOwner = githubRepo.owner.login;
+    const repoName = githubRepo.name;
+    const octokit = getInstallationOctokit(installationId);
+
+    // --- 2. CONTEXTUAL ROUTING ---
+    const ownerData = await prisma.installationOwner.findUnique({
+      where: { githubInstallationId: installationId },
+      include: { repositories: { where: { owner: repoOwner, name: repoName, type: { in: ["MAIN", "HYBRID"] } } } },
+    });
+
+    if (!ownerData || ownerData.repositories.length === 0) return res.sendStatus(200);
+
+    const triggeringRepo = ownerData.repositories[0];
+    const isHybrid = triggeringRepo.type === "HYBRID";
+    const internalRepoId = triggeringRepo.id;
+
+    const { data: files } = await octokit.pulls.listFiles({ owner: repoOwner, repo: repoName, pull_number: pr.number });
+    const filesForAI = files.map((f) => ({ filename: f.filename, status: f.status, patch: f.patch || "" }));
+
+    const analysis = await classifyDocRelevance(filesForAI);
+    if (!analysis.doc_relevant || analysis.confidence < 0.6) return res.sendStatus(200);
+
+    // --- 3. TARGET DISCOVERY & INTELLIGENT MATCHING ---
+    let targetOwner = repoOwner;
+    let targetName = repoName;
+
+    if (!isHybrid) {
+      const docsRepo = await prisma.repository.findFirst({ where: { installationOwnerId: ownerData.id, type: "DOCS" } });
+      if (!docsRepo) return res.sendStatus(200);
+      targetOwner = docsRepo.owner;
+      targetName = docsRepo.name;
+    }
+
+    const docsRoot = isHybrid ? "docs" : "";
+    let docsConfig = "";
     try {
-      console.log(`[Service] Triggering DocAutomationService for ${targetOwner}/${targetName}...`);
+      const { data: conf } = await octokit.repos.getContent({
+        owner: targetOwner, repo: targetName, path: path.join(docsRoot, "docs.json").replace(/\\/g, '/')
+      });
+      if ("content" in conf && !Array.isArray(conf)) docsConfig = Buffer.from(conf.content, 'base64').toString();
+    } catch (e) { console.log("[Discovery] No docs.json map found."); }
+
+    const suggestedPath = await determineTargetPath(docsConfig, filesForAI);
+    let finalTargetPath = path.join(docsRoot, suggestedPath).replace(/\\/g, '/');
+    
+    // SENIOR MOVE: Initialize variables to store file state
+    let existingContent = "";
+    let fileSha: string | undefined = undefined; 
+
+    const targetDir = path.dirname(finalTargetPath).replace(/\\/g, '/');
+    try {
+      console.log(`[Discovery] Scanning: ${targetDir}`);
+      const { data: dirContents } = await octokit.repos.getContent({ owner: targetOwner, repo: targetName, path: targetDir });
+
+      if (Array.isArray(dirContents)) {
+        const fileNameBase = path.basename(suggestedPath, path.extname(suggestedPath)).toLowerCase();
+        
+        const matchedFile = dirContents.find(f => {
+          const githubBase = path.basename(f.name, path.extname(f.name)).toLowerCase();
+          return githubBase === fileNameBase || githubBase.includes(fileNameBase) || fileNameBase.includes(githubBase);
+        });
+
+        if (matchedFile) {
+          finalTargetPath = matchedFile.path;
+          console.log(`[Discovery] 🎯 Matched existing file: ${finalTargetPath}`);
+          
+          const { data: fData } = await octokit.repos.getContent({ owner: targetOwner, repo: targetName, path: finalTargetPath });
+          
+          if ("content" in fData && !Array.isArray(fData)) {
+            existingContent = Buffer.from(fData.content, 'base64').toString();
+            fileSha = fData.sha; // <--- CAPTURE THE SHA HERE
+            console.log(`[Discovery] Captured SHA: ${fileSha}`);
+          }
+        }
+      }
+    } catch (e) { console.log(`[Discovery] Target directory empty or missing.`); }
+
+    // --- 4. GENERATION & EXECUTION ---
+    const diffSummary = summarizeDiff(filesForAI);
+    const docText = await generateDocUpdate(internalRepoId, diffSummary, existingContent);
+
+    try {
       const result = await DocAutomationService.pushUpdateToDocsRepo({
         installationId,
         octokit,
@@ -482,29 +466,22 @@ app.post("/github/webhook", async (req: any, res) => {
         docsRepoOwner: targetOwner,
         docsRepoName: targetName,
         docText,
-        filesForAI,
+        targetPath: finalTargetPath,
+        fileSha, // <--- PASS THE SHA TO THE SERVICE
         isHybrid
       });
 
-      console.log(`[Service] ✅ Success! PR Created: ${result.prUrl}`);
-
-      const modeText = isHybrid ? "your repository" : "your docs repository";
       await octokit.issues.createComment({
         owner: repoOwner,
         repo: repoName,
         issue_number: pr.number,
-        body: `## 🤖 AI Documentation Proposed\n\nI've generated a documentation update in ${modeText}.\n\n**Proposed PR:** ${result.prUrl}\n**Target File:** \`${result.targetPath}\``
+        body: `## 🤖 AI Documentation Update\n\nI've surgically updated your documentation in \`${result.targetPath}\`.\n\n**Proposed PR:** ${result.prUrl}`
       });
-
-    } catch (error: any) {
-      console.error(`[Workflow Error] ❌ Critical Failure:`, error.message);
-      if (error.response) {
-        console.error(`[GitHub API Error] Status: ${error.response.status} | Data:`, error.response.data);
-      }
+    } catch (err: any) {
+      console.error("[Workflow Error]", err.message);
     }
-  }
 
-  return res.sendStatus(200);
+    return res.sendStatus(200);
 }
 });
 
