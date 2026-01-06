@@ -362,29 +362,58 @@ app.post("/github/webhook", async (req: any, res) => {
   }
 
   if (event === "pull_request") {
-  const { pull_request: pr, repository: githubRepo, installation } = req.body;
+  const { action, pull_request: pr, repository: githubRepo, installation } = req.body;
+
+  const isBotPR = pr.user.type === "Bot" || pr.head.ref.startsWith("docs/update-");
+  
+  if (isBotPR) {
+    console.log(`[Webhook] 🤖 Bot-generated PR detected (#${pr.number}). Skipping to prevent infinite loop.`);
+    return res.sendStatus(200);
+  }
+
+  // Trace 1: Entry point
+  console.log(`\n[📡 Webhook Received] Action: ${action} | Repo: ${githubRepo.full_name} | PR: #${pr.number}`);
+
+  if (!["opened", "synchronize"].includes(action)) {
+    console.log(`[Webhook] Ignoring action: ${action}`);
+    return res.sendStatus(200);
+  }
 
   const installationId = installation.id;
   const repoOwner = githubRepo.owner.login;
   const repoName = githubRepo.name;
 
+  // Trace 2: Database Lookup
+  console.log(`[DB] Looking up installation owner for ID: ${installationId}...`);
   const ownerData = await prisma.installationOwner.findUnique({
     where: { githubInstallationId: installationId },
     include: { 
       repositories: { 
-        where: { owner: repoOwner, name: repoName, type: "MAIN" } 
+        where: { 
+          owner: repoOwner, 
+          name: repoName, 
+          type: { in: ["MAIN", "HYBRID"] } 
+        } 
       } 
     },
   });
 
   if (!ownerData || ownerData.repositories.length === 0) {
-    console.log(`[Webhook] Skipping non-MAIN repository: ${repoOwner}/${repoName}`);
+    console.log(`[Webhook] ❌ Skipping: Repo ${repoOwner}/${repoName} is NOT registered as MAIN or HYBRID.`);
     return res.sendStatus(200); 
   }
 
-  const internalRepoId = ownerData.repositories[0].id;
+  const triggeringRepo = ownerData.repositories[0];
+  const internalRepoId = triggeringRepo.id; 
+  const isHybrid = triggeringRepo.type === "HYBRID";
+  
+  // Trace 3: Identity Confirmed
+  console.log(`[Webhook] ✅ Found Registered Repo. Type: ${triggeringRepo.type} | ID: ${internalRepoId}`);
+
   const octokit = getInstallationOctokit(installationId);
 
+  // Trace 4: GitHub File Fetching
+  console.log(`[GitHub] Fetching file list for PR #${pr.number}...`);
   const { data: files } = await octokit.pulls.listFiles({
     owner: repoOwner,
     repo: repoName,
@@ -396,49 +425,82 @@ app.post("/github/webhook", async (req: any, res) => {
     status: f.status,
     patch: f.patch || "",
   }));
+  console.log(`[GitHub] Retrieved ${filesForAI.length} files.`);
 
+  // Trace 5: AI Relevance
+  console.log(`[AI] Running Relevance Analysis...`);
   const analysis = await classifyDocRelevance(filesForAI);
-  console.log(`[PR Analysis] Relevant: ${analysis.doc_relevant} | Reason: ${analysis.reason}`);
+  console.log(`[AI] Relevant: ${analysis.doc_relevant} | Confidence: ${analysis.confidence} | Reason: ${analysis.reason}`);
 
   if (!analysis.doc_relevant || analysis.confidence < 0.6) {
+    console.log(`[AI] ⏩ Skipping doc generation: Not relevant enough.`);
     return res.sendStatus(200);
   }
 
   const diffSummary = summarizeDiff(filesForAI);
-  console.log("[PR Analysis] Diff Summary:", diffSummary);
+  console.log("[AI] Diff Summary Generated.");
   
   const docText = await generateDocUpdate(internalRepoId, diffSummary);
+  console.log(`[AI] Doc Update Content Generated (${docText.length} chars).`);
 
-  const docsRepoRecord = await prisma.repository.findFirst({
-    where: { 
-      installationOwnerId: ownerData.id, 
-      type: "DOCS" 
+  // Trace 6: Routing Logic
+  let targetOwner: string;
+  let targetName: string;
+
+  if (isHybrid) {
+    console.log(`[Route] 🔄 HYBRID Mode detected. Target is SAME repo: ${repoOwner}/${repoName}`);
+    targetOwner = repoOwner;
+    targetName = repoName;
+  } else {
+    console.log(`[Route] 🛤️ MAIN Mode detected. Searching for separate DOCS repo...`);
+    const docsRepoRecord = await prisma.repository.findFirst({
+      where: { 
+        installationOwnerId: ownerData.id, 
+        type: "DOCS" 
+      }
+    });
+
+    if (!docsRepoRecord) {
+      console.error(`[Route] ❌ Error: Standard Mode active but no DOCS repo record found in DB.`);
+      return res.sendStatus(200);
     }
-  });
 
-  if (docsRepoRecord) {
+    targetOwner = docsRepoRecord.owner;
+    targetName = docsRepoRecord.name;
+    console.log(`[Route] Found Target DOCS Repo: ${targetOwner}/${targetName}`);
+  }
+
+  // Trace 7: Final Execution
+  if (targetOwner && targetName) {
     try {
+      console.log(`[Service] Triggering DocAutomationService for ${targetOwner}/${targetName}...`);
       const result = await DocAutomationService.pushUpdateToDocsRepo({
         installationId,
         octokit,
         sourceRepo: repoName,
         sourcePrNumber: pr.number,
-        docsRepoOwner: docsRepoRecord.owner,
-        docsRepoName: docsRepoRecord.name,
+        docsRepoOwner: targetOwner,
+        docsRepoName: targetName,
         docText,
-        filesForAI
+        filesForAI,
+        isHybrid
       });
 
+      console.log(`[Service] ✅ Success! PR Created: ${result.prUrl}`);
+
+      const modeText = isHybrid ? "your repository" : "your docs repository";
       await octokit.issues.createComment({
         owner: repoOwner,
         repo: repoName,
         issue_number: pr.number,
-        body: `## 🤖 AI Documentation Proposed\n\nI've generated a documentation update in your docs repository.\n\n**Proposed PR:** ${result.prUrl}\n**Target File:** \`${result.targetPath}\``
+        body: `## 🤖 AI Documentation Proposed\n\nI've generated a documentation update in ${modeText}.\n\n**Proposed PR:** ${result.prUrl}\n**Target File:** \`${result.targetPath}\``
       });
 
-      console.log(`✅ Workflow Success: Proposed docs for PR #${pr.number}`);
-    } catch (error) {
-      console.error(`[Workflow Error] Failed to push docs:`, error);
+    } catch (error: any) {
+      console.error(`[Workflow Error] ❌ Critical Failure:`, error.message);
+      if (error.response) {
+        console.error(`[GitHub API Error] Status: ${error.response.status} | Data:`, error.response.data);
+      }
     }
   }
 
