@@ -127,7 +127,7 @@ app.patch("/api/repositories/:repoId/type", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized: No session cookie found" });
   }
 
-  const validTypes: RepositoryType[] = ["MAIN", "DOCS", "IGNORE"];
+  const validTypes: RepositoryType[] = ["MAIN", "DOCS", "IGNORE", "HYBRID"];
   const upperType = type?.toUpperCase() as RepositoryType;
 
   if (!validTypes.includes(upperType)) {
