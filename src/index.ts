@@ -380,6 +380,17 @@ app.post("/github/webhook", async (req: any, res) => {
     const repoName = githubRepo.name;
     const octokit = getInstallationOctokit(installationId);
 
+    // SENIOR MOVE: Fetch the "True" Default Branch immediately.
+    // This fixes the 404 error where code assumed "main" but repo uses "master".
+    let defaultBranch = "main";
+    try {
+      const { data: repoData } = await octokit.repos.get({ owner: repoOwner, repo: repoName });
+      defaultBranch = repoData.default_branch;
+      console.log(`[Init] Detected default branch: "${defaultBranch}"`);
+    } catch (e) {
+      console.warn(`[Init] Could not fetch default branch, falling back to '${defaultBranch}'`);
+    }
+
     // --- 2. CONTEXTUAL ROUTING ---
     const ownerData = await prisma.installationOwner.findUnique({
       where: { githubInstallationId: installationId },
@@ -402,18 +413,30 @@ app.post("/github/webhook", async (req: any, res) => {
     let targetOwner = repoOwner;
     let targetName = repoName;
 
+    // Handle separate docs repo if needed
     if (!isHybrid) {
       const docsRepo = await prisma.repository.findFirst({ where: { installationOwnerId: ownerData.id, type: "DOCS" } });
       if (!docsRepo) return res.sendStatus(200);
       targetOwner = docsRepo.owner;
       targetName = docsRepo.name;
+      
+      // If target is different, we might need that repo's default branch
+      try {
+         const { data: targetRepoData } = await octokit.repos.get({ owner: targetOwner, repo: targetName });
+         defaultBranch = targetRepoData.default_branch; 
+      } catch (e) { console.log("[Discovery] Could not fetch target repo branch"); }
     }
 
     const docsRoot = isHybrid ? "docs" : "";
     let docsConfig = "";
+    
+    // Attempt to load docs.json using the CORRECT branch
     try {
       const { data: conf } = await octokit.repos.getContent({
-        owner: targetOwner, repo: targetName, path: path.join(docsRoot, "docs.json").replace(/\\/g, '/')
+        owner: targetOwner, 
+        repo: targetName, 
+        path: path.join(docsRoot, "docs.json").replace(/\\/g, '/'),
+        ref: defaultBranch // <--- SENIOR MOVE: Explicitly pass the branch
       });
       if ("content" in conf && !Array.isArray(conf)) docsConfig = Buffer.from(conf.content, 'base64').toString();
     } catch (e) { console.log("[Discovery] No docs.json map found."); }
@@ -421,14 +444,19 @@ app.post("/github/webhook", async (req: any, res) => {
     const suggestedPath = await determineTargetPath(docsConfig, filesForAI);
     let finalTargetPath = path.join(docsRoot, suggestedPath).replace(/\\/g, '/');
     
-    // SENIOR MOVE: Initialize variables to store file state
+    // Initialize variables to store file state
     let existingContent = "";
     let fileSha: string | undefined = undefined; 
 
     const targetDir = path.dirname(finalTargetPath).replace(/\\/g, '/');
     try {
-      console.log(`[Discovery] Scanning: ${targetDir}`);
-      const { data: dirContents } = await octokit.repos.getContent({ owner: targetOwner, repo: targetName, path: targetDir });
+      console.log(`[Discovery] Scanning: ${targetDir} on branch: ${defaultBranch}`);
+      const { data: dirContents } = await octokit.repos.getContent({ 
+        owner: targetOwner, 
+        repo: targetName, 
+        path: targetDir,
+        ref: defaultBranch // <--- Explicit branch reference
+      });
 
       if (Array.isArray(dirContents)) {
         const fileNameBase = path.basename(suggestedPath, path.extname(suggestedPath)).toLowerCase();
@@ -442,11 +470,16 @@ app.post("/github/webhook", async (req: any, res) => {
           finalTargetPath = matchedFile.path;
           console.log(`[Discovery] 🎯 Matched existing file: ${finalTargetPath}`);
           
-          const { data: fData } = await octokit.repos.getContent({ owner: targetOwner, repo: targetName, path: finalTargetPath });
+          const { data: fData } = await octokit.repos.getContent({ 
+            owner: targetOwner, 
+            repo: targetName, 
+            path: finalTargetPath,
+            ref: defaultBranch 
+          });
           
           if ("content" in fData && !Array.isArray(fData)) {
             existingContent = Buffer.from(fData.content, 'base64').toString();
-            fileSha = fData.sha; // <--- CAPTURE THE SHA HERE
+            fileSha = fData.sha; 
             console.log(`[Discovery] Captured SHA: ${fileSha}`);
           }
         }
@@ -467,8 +500,9 @@ app.post("/github/webhook", async (req: any, res) => {
         docsRepoName: targetName,
         docText,
         targetPath: finalTargetPath,
-        fileSha, // <--- PASS THE SHA TO THE SERVICE
-        isHybrid
+        fileSha,
+        isHybrid,
+        baseBranch: defaultBranch // <--- PASS THE RESOLVED BRANCH
       });
 
       await octokit.issues.createComment({

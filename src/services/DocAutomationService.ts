@@ -8,10 +8,11 @@ interface AutomationConfig {
   sourcePrNumber: number;
   docsRepoOwner: string;
   docsRepoName: string;
-  docText: string;      // This is now the SURGICALLY MERGED content
-  targetPath: string;   // SENIOR MOVE: Pass the pre-calculated path here
+  docText: string;      
+  targetPath: string;   
   isHybrid: boolean; 
   fileSha?: string;
+  baseBranch: string; // <--- SENIOR MOVE: Receive branch from caller
 }
 
 export class DocAutomationService {
@@ -23,17 +24,17 @@ export class DocAutomationService {
       docText, 
       sourceRepo, 
       sourcePrNumber, 
-      targetPath // Use the path passed from index.ts
+      targetPath,
+      baseBranch // Use the passed branch
     } = config;
 
     console.log(`\n[🚀 DocAutomationService] Starting push for PR #${sourcePrNumber}`);
-    console.log(`[Target] Writing to: ${docsRepoOwner}/${docsRepoName} at path: ${targetPath}`);
+    console.log(`[Target] Writing to: ${docsRepoOwner}/${docsRepoName} at path: ${targetPath} on branch: ${baseBranch}`);
 
     const branchName = `docs/update-${sourcePrNumber}-${Date.now()}`;
     
     // --- Git Handshake ---
-    const { data: repo } = await octokit.repos.get({ owner: docsRepoOwner, repo: docsRepoName });
-    const baseBranch = repo.default_branch;
+    // REMOVED: Redundant octokit.repos.get call. We already know the branch.
 
     console.log(`[GitHub] Creating new branch: "${branchName}" from "${baseBranch}"...`);
     const { data: ref } = await octokit.git.getRef({
@@ -50,7 +51,6 @@ export class DocAutomationService {
     });
 
     // 3. Update File (Atomic Write)
-    // Because docText is already merged by the AI, we just write it.
     console.log(`[GitHub] Uploading surgically merged content to "${targetPath}"...`);
     await octokit.repos.createOrUpdateFileContents({
       owner: docsRepoOwner,
