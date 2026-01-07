@@ -3,8 +3,8 @@ import { pipeline, env } from "@xenova/transformers";
 import dotenv from 'dotenv';
 import path from 'path';
 
-// --- INFRASTRUCTURE FIX: Prevent 'EACCES' Crashes ---
-// We force the AI model to use the system temp directory, which is always writable.
+// --- 1. INFRASTRUCTURE FIX (Prevent Crashes) ---
+// In production/Docker, we must use a writable directory for the AI model cache.
 env.cacheDir = '/tmp/.transformers_cache';
 env.allowLocalModels = false; 
 
@@ -34,8 +34,8 @@ export async function getRelevantContext(
 ): Promise<string[]> {
     const summary = diffSummary?.summary || "API endpoint implementation";
     
-    // --- CONTEXT QUALITY FIX: Search for Types ---
-    // We add keywords like 'interface', 'type', 'schema' to find the data shape.
+    // --- 2. SEARCH LOGIC UPGRADE ---
+    // We specifically hunt for Types, Interfaces, and Schemas to build better Docs.
     const searchString = `TypeScript interfaces, Zod schemas, database models, and API logic for: ${summary}`;
     
     try {
@@ -43,15 +43,15 @@ export async function getRelevantContext(
         const output = await generateEmbedding(searchString, { pooling: "mean", normalize: true });
         const queryVector = JSON.stringify(Array.from(output.data));
 
-        // --- NOISE FILTER: Ignore JSON/Config files ---
+        // --- 3. SCHEMA FIX & NOISE FILTER ---
+        // We use "filename" (from your Python script) and filter out non-code files.
         const query = `
-            SELECT code, file_path, 1 - (embedding <=> $1) AS similarity
+            SELECT code, filename, 1 - (embedding <=> $1) AS similarity
             FROM codeembedding__code_embeddings
             WHERE repo_id = $2
-            AND file_path NOT LIKE '%.json' 
-            AND file_path NOT LIKE '%.lock'
-            AND file_path NOT LIKE '%.md'
-            AND length(code) > 20  -- Ignore empty snippets
+            AND filename NOT LIKE '%.json' 
+            AND filename NOT LIKE '%.lock'
+            AND filename NOT LIKE '%.md'
             ORDER BY embedding <=> $1
             LIMIT 5;
         `;
@@ -61,7 +61,7 @@ export async function getRelevantContext(
         // Filter for high relevance only
         const context = res.rows
             .filter(row => row.similarity > 0.42) 
-            .map(row => `// --- FILE: ${row.file_path} ---\n${row.code}`);
+            .map(row => `// --- FILE: ${row.filename} ---\n${row.code}`);
 
         const topScore = res.rows[0]?.similarity || 0;
         console.log(`[RAG] 🔍 Top Similarity: ${topScore.toFixed(3)} | Blocks Found: ${context.length}`);
