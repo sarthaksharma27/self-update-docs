@@ -8,11 +8,27 @@ export async function generateDocUpdate(
   diffSummary: any,
   existingDocContent: string = ""
 ): Promise<string> {
-  // 1. Fetch Context (Types, Schemas, Related Logic)
+  console.log("🤖 AI Documentation Generation Started");
+  console.log("Repository ID:", repoId);
+
+  console.log("Generating diff summary:");
+  console.log(JSON.stringify(diffSummary, null, 2));
+
   const contextBlocks = await getRelevantContext(repoId, diffSummary);
+  console.log("Retrieved source code context blocks (via RAG):");
+  if (contextBlocks.length > 0) {
+    contextBlocks.forEach((block, idx) => {
+      console.log(`--- Context Block ${idx + 1} ---`);
+      console.log(block);
+    });
+  } else {
+    console.log("No context available.");
+  }
+
   const isUpdate = existingDocContent.length > 0;
 
-  // 2. The Senior Technical Writer Persona & Style Guide
+  console.log(isUpdate ? "Updating existing documentation." : "Creating new documentation.");
+
   const systemPrompt = `
 ### ROLE
 You are a Staff Technical Writer for a developer platform. You write "Stripe-quality" MDX documentation. 
@@ -71,20 +87,24 @@ ${isUpdate ? existingDocContent : "(New File)"}
 Return **ONLY** the raw MDX content. No markdown wrappers around the whole response.
 `;
 
+  console.log("Sending request to OpenAI with system and user prompts...");
+
   const response = await client.chat.completions.create({
-    model: "gpt-4o", // 4o is critical for following complex style guides
+    model: "gpt-4o",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.1, // Low temp for high adherence to the style guide
+    temperature: 0.1,
   });
 
   let content = response.choices?.[0]?.message?.content || "";
 
-  // 3. Final Sanitization
+  console.log("AI-generated documentation received:");
+  console.log(content);
+
   return content
-    .replace(/^```[a-z]*\n/i, "") // Remove starting code fence
-    .replace(/\n```$/i, "")        // Remove ending code fence
+    .replace(/^```[a-z]*\n/i, "") 
+    .replace(/\n```$/i, "")    
     .trim();
 }

@@ -366,10 +366,9 @@ app.post("/github/webhook", async (req: any, res) => {
  if (event === "pull_request") {
     const { action, pull_request: pr, repository: githubRepo, installation } = req.body;
 
-    // --- 1. PREVENT INFINITE LOOP ---
     const isBotPR = pr.user.type === "Bot" || pr.head.ref.startsWith("docs/update-");
     if (isBotPR) {
-      console.log(`[Webhook] 🤖 Ignoring Bot PR #${pr.number}`);
+      console.log(`[Webhook] Ignoring Bot PR #${pr.number}`);
       return res.sendStatus(200);
     }
 
@@ -380,8 +379,6 @@ app.post("/github/webhook", async (req: any, res) => {
     const repoName = githubRepo.name;
     const octokit = getInstallationOctokit(installationId);
 
-    // SENIOR MOVE: Fetch the "True" Default Branch immediately.
-    // This fixes the 404 error where code assumed "main" but repo uses "master".
     let defaultBranch = "main";
     try {
       const { data: repoData } = await octokit.repos.get({ owner: repoOwner, repo: repoName });
@@ -391,36 +388,41 @@ app.post("/github/webhook", async (req: any, res) => {
       console.warn(`[Init] Could not fetch default branch, falling back to '${defaultBranch}'`);
     }
 
-    // --- 2. CONTEXTUAL ROUTING ---
     const ownerData = await prisma.installationOwner.findUnique({
       where: { githubInstallationId: installationId },
       include: { repositories: { where: { owner: repoOwner, name: repoName, type: { in: ["MAIN", "HYBRID"] } } } },
     });
-
     if (!ownerData || ownerData.repositories.length === 0) return res.sendStatus(200);
 
     const triggeringRepo = ownerData.repositories[0];
     const isHybrid = triggeringRepo.type === "HYBRID";
     const internalRepoId = triggeringRepo.id;
 
-    const { data: files } = await octokit.pulls.listFiles({ owner: repoOwner, repo: repoName, pull_number: pr.number });
-    const filesForAI = files.map((f) => ({ filename: f.filename, status: f.status, patch: f.patch || "" }));
+    const {data: files} = await octokit.pulls.listFiles({
+      owner: repoOwner,
+      repo: repoName,
+      pull_number: pr.number,
+    });
+    
+    const filesForAI = files.map((file) => ({
+      filename: file.filename,
+      status: file.status,
+      patch: file.patch ?? "",
+    }));
 
     const analysis = await classifyDocRelevance(filesForAI);
+    console.log(`[AI] PR #${pr.number} Relevance: ${analysis.doc_relevant} (Confidence: ${analysis.confidence}) - ${analysis.reason}`);
     if (!analysis.doc_relevant || analysis.confidence < 0.6) return res.sendStatus(200);
 
-    // --- 3. TARGET DISCOVERY & INTELLIGENT MATCHING ---
     let targetOwner = repoOwner;
     let targetName = repoName;
 
-    // Handle separate docs repo if needed
     if (!isHybrid) {
       const docsRepo = await prisma.repository.findFirst({ where: { installationOwnerId: ownerData.id, type: "DOCS" } });
       if (!docsRepo) return res.sendStatus(200);
       targetOwner = docsRepo.owner;
       targetName = docsRepo.name;
       
-      // If target is different, we might need that repo's default branch
       try {
          const { data: targetRepoData } = await octokit.repos.get({ owner: targetOwner, repo: targetName });
          defaultBranch = targetRepoData.default_branch; 
@@ -430,21 +432,21 @@ app.post("/github/webhook", async (req: any, res) => {
     const docsRoot = isHybrid ? "docs" : "";
     let docsConfig = "";
     
-    // Attempt to load docs.json using the CORRECT branch
     try {
       const { data: conf } = await octokit.repos.getContent({
         owner: targetOwner, 
         repo: targetName, 
         path: path.join(docsRoot, "docs.json").replace(/\\/g, '/'),
-        ref: defaultBranch // <--- SENIOR MOVE: Explicitly pass the branch
+        ref: defaultBranch
       });
       if ("content" in conf && !Array.isArray(conf)) docsConfig = Buffer.from(conf.content, 'base64').toString();
-    } catch (e) { console.log("[Discovery] No docs.json map found."); }
+    } catch (e) { console.log("No docs.json map found docsConfig is Empty."); }
 
     const suggestedPath = await determineTargetPath(docsConfig, filesForAI);
     let finalTargetPath = path.join(docsRoot, suggestedPath).replace(/\\/g, '/');
     
-    // Initialize variables to store file state
+    // We know where we want to write, but does that file already exist?
+    
     let existingContent = "";
     let fileSha: string | undefined = undefined; 
 
@@ -455,7 +457,7 @@ app.post("/github/webhook", async (req: any, res) => {
         owner: targetOwner, 
         repo: targetName, 
         path: targetDir,
-        ref: defaultBranch // <--- Explicit branch reference
+        ref: defaultBranch
       });
 
       if (Array.isArray(dirContents)) {
@@ -468,7 +470,7 @@ app.post("/github/webhook", async (req: any, res) => {
 
         if (matchedFile) {
           finalTargetPath = matchedFile.path;
-          console.log(`[Discovery] 🎯 Matched existing file: ${finalTargetPath}`);
+          console.log(`Matched existing file: ${finalTargetPath}`);  
           
           const { data: fData } = await octokit.repos.getContent({ 
             owner: targetOwner, 
@@ -486,8 +488,9 @@ app.post("/github/webhook", async (req: any, res) => {
       }
     } catch (e) { console.log(`[Discovery] Target directory empty or missing.`); }
 
-    // --- 4. GENERATION & EXECUTION ---
     const diffSummary = summarizeDiff(filesForAI);
+    console.log("diffSummary", diffSummary);
+    
     const docText = await generateDocUpdate(internalRepoId, diffSummary, existingContent);
 
     try {
@@ -509,7 +512,7 @@ app.post("/github/webhook", async (req: any, res) => {
         owner: repoOwner,
         repo: repoName,
         issue_number: pr.number,
-        body: `## 🤖 AI Documentation Update\n\nI've surgically updated your documentation in \`${result.targetPath}\`.\n\n**Proposed PR:** ${result.prUrl}`
+        body: `## 🤖 AI Documentation Update\n\nI've updated your documentation in \`${result.targetPath}\`.\n\n**Proposed PR:** ${result.prUrl}`
       });
     } catch (err: any) {
       console.error("[Workflow Error]", err.message);

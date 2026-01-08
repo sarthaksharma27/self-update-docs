@@ -25,7 +25,7 @@ export async function classifyDocRelevance(
       reason: "No code-related files changed.",
     };
   }
-
+  
   const prompt = `
     Analyze these GitHub PR changes. Determine if they require documentation updates.
     Return ONLY a JSON object with: 

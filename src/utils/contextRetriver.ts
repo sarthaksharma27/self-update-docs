@@ -3,8 +3,6 @@ import { pipeline, env } from "@xenova/transformers";
 import dotenv from 'dotenv';
 import path from 'path';
 
-// --- 1. INFRASTRUCTURE FIX (Prevent Crashes) ---
-// In production/Docker, we must use a writable directory for the AI model cache.
 env.cacheDir = '/tmp/.transformers_cache';
 env.allowLocalModels = false; 
 
@@ -22,7 +20,7 @@ let embedder: any = null;
 
 async function getEmbedder() {
     if (!embedder) {
-        console.log("[RAG] 🧠 Initializing embedding model (cached in /tmp)...");
+        console.log("[RAG] Initializing embedding model (cached in /tmp)");
         embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
     }
     return embedder;
@@ -33,9 +31,6 @@ export async function getRelevantContext(
     diffSummary: any
 ): Promise<string[]> {
     const summary = diffSummary?.summary || "API endpoint implementation";
-    
-    // --- 2. SEARCH LOGIC UPGRADE ---
-    // We specifically hunt for Types, Interfaces, and Schemas to build better Docs.
     const searchString = `TypeScript interfaces, Zod schemas, database models, and API logic for: ${summary}`;
     
     try {
@@ -43,8 +38,6 @@ export async function getRelevantContext(
         const output = await generateEmbedding(searchString, { pooling: "mean", normalize: true });
         const queryVector = JSON.stringify(Array.from(output.data));
 
-        // --- 3. SCHEMA FIX & NOISE FILTER ---
-        // We use "filename" (from your Python script) and filter out non-code files.
         const query = `
             SELECT code, filename, 1 - (embedding <=> $1) AS similarity
             FROM codeembedding__code_embeddings
@@ -58,14 +51,12 @@ export async function getRelevantContext(
         
         const res = await pool.query(query, [queryVector, repoId]);
 
-        // Filter for high relevance only
         const context = res.rows
             .filter(row => row.similarity > 0.42) 
             .map(row => `// --- FILE: ${row.filename} ---\n${row.code}`);
 
         const topScore = res.rows[0]?.similarity || 0;
-        console.log(`[RAG] 🔍 Top Similarity: ${topScore.toFixed(3)} | Blocks Found: ${context.length}`);
-        
+        console.log(`[RAG] Top Similarity: ${topScore.toFixed(3)} | Blocks Found: ${context.length}`);
         return context;
     } catch (error) {
         console.error("[Context Retrieval Error]", error);
