@@ -8,6 +8,7 @@ export async function generateDocUpdate(
   diffSummary: any,
   existingDocContent: string = ""
 ): Promise<string> {
+  // --- 1. PRESERVED LOGGING (OBSERVABILITY) ---
   console.log("🤖 AI Documentation Generation Started");
   console.log("Repository ID:", repoId);
 
@@ -26,68 +27,79 @@ export async function generateDocUpdate(
   }
 
   const isUpdate = existingDocContent.length > 0;
-
   console.log(isUpdate ? "Updating existing documentation." : "Creating new documentation.");
 
+  // --- 2. SENIOR ENGINEER PROMPT LOGIC ---
+  
   const systemPrompt = `
 ### ROLE
-You are a Staff Technical Writer for a developer platform. You write "Stripe-quality" MDX documentation. 
-Your docs are clean, precise, and use specific UI components for readability.
+You are a Staff Technical Writer for a top-tier developer platform (like Stripe or Vercel). 
+Your documentation is strictly evidence-based: you document ONLY what is present in the code diff and context.
 
-### STYLE GUIDE (STRICT ADHERENCE REQUIRED)
-You must structure your output using this exact hierarchy and component set:
+### PROTOCOL: "ANALYZE FIRST, THEN FORMAT"
+Do not blindly follow a template. First, determine the **Artifact Type** from the code, then apply the matching guidelines.
 
-1. **Hierarchy**:
-   - \`# Title\`
-   - \`## Overview\` (1-2 sentences explaining what this feature/endpoint does)
-   - \`## Endpoint\` (For API routes)
-   - \`### Request\` (Method, URL, Headers)
-   - \`#### Parameters\` (Use <ParamField> component)
-   - \`### Response\` (Status codes, JSON example)
-   - \`## Usage Example\` (cURL or JS snippet)
+### ARCHETYPES (Choose the one that best fits the code)
 
-2. **Components**:
-   - **Parameters**: Use \`<ParamField name="arg_name" type="string" required={true}>Description</ParamField>\`
-   - **Warnings**: Use \`<Warning>Text</Warning>\` for deprecations or breaking changes.
-   - **Notes**: Use \`<Note>Text</Note>\` for constraints (e.g., Auth required, limits).
-   - **Callouts**: Use \`<Callout>Text</Callout>\` for tips.
+**1. HTTP API / Route** (e.g., \`route.ts\`, \`controller.ts\`, uses \`req/res\`, \`NextResponse\`)
+   - **Focus**: Endpoints, Methods, Auth, Request/Response shapes.
+   - **Structure**: Title > Overview > Endpoint Definition > Params > Response Example.
+   - **Requirement**: Use \`<ParamField>\` for query/body params.
 
-3. **Formatting**:
-   - JSON responses must be multi-line and indented (2 spaces).
-   - Code blocks must have language tags (e.g., \`\`\`json, \`\`\`bash).
+**2. Code Library / Utility** (e.g., \`lib/\`, \`utils/\`, \`services/\`, \`hooks/\`)
+   - **Focus**: Logic, Helper functions, Classes, Algorithms.
+   - **Structure**: Title > Overview > Function Signatures > Usage Example.
+   - **Rule**: If it's a single function, document that function. If it's a class, document key methods.
 
-### INTENT LOGIC
-- **Deprecation**: If a route changed from v1 to v2, add a <Warning> at the very top.
-- **New Feature**: If it's a new file, write a full guide.
-- **Bug Fix**: Only surgically update the logic/description.
-- **Context Usage**: Use the provided "SOURCE CODE CONTEXT" to find the exact Types/Interfaces for the response JSON. DO NOT hallucinate fields.
+**3. UI Component** (e.g., \`components/\`, \`.tsx\`, \`.vue\`)
+   - **Focus**: Visual elements, Props, Slots, Event Handlers.
+   - **Structure**: Title > Overview > Props Table (\`<ParamField>\`) > Interactive Usage Example.
+
+**4. Configuration / Environment** (e.g., \`.env\`, \`config.ts\`, \`docker-compose.yml\`)
+   - **Focus**: Environment variables, Flags, Setup steps.
+   - **Structure**: Title > Purpose > Configuration Options > Default Values.
+   - **Rule**: Explain *why* a variable is needed (e.g., "Controls the rate limit").
+
+**5. Data Model / Schema** (e.g., \`schema.prisma\`, \`types.ts\`, SQL migrations)
+   - **Focus**: Database tables, Relationships, Type definitions.
+   - **Structure**: Title > Model Description > Fields > Relationships.
+
+### UNIVERSAL RULES (Apply to ALL types)
+1. **No Hallucinations**: If the code is a simple utility function, DO NOT invent a REST API endpoint for it.
+2. **Context-Aware**: If you see imports like \`redis\`, mention that Redis is a dependency.
+3. **Adaptive Formatting**: 
+   - Use MDX components (\`<Note>\`, \`<Warning>\`, \`<Callout>\`) only when they add value.
+   - If a section is irrelevant (e.g., a function with no arguments), skip the "Parameters" section.
+   - Code blocks must always specify the language (e.g., \`\`\`typescript).
 `;
+
+  // Calculate file string for the prompt context
+  const touchedFiles = diffSummary.touchedFiles ? diffSummary.touchedFiles.join(", ") : "Unknown File";
 
   const userPrompt = `
 ### TASK
-${isUpdate ? "SURGICALLY UPDATE the existing MDX to match the new code." : "CREATE NEW MDX documentation for this code."}
+${isUpdate ? "SURGICALLY UPDATE the existing MDX to reflect the code changes." : "CREATE NEW MDX documentation based on the code analysis."}
 
-### 1. THE CODE DIFF (What changed?)
+### GROUND TRUTH
+**Primary File(s):** \`${touchedFiles}\`
+*(Use the file extension and directory to infer the Archetype defined in the System Prompt)*
+
+### 1. CODE DIFF (The Change)
 ${JSON.stringify(diffSummary, null, 2)}
 
-### 2. SOURCE CODE CONTEXT (Types & Logic)
-${contextBlocks.length > 0 ? contextBlocks.join("\n\n") : "No context available."}
+### 2. CONTEXT (Dependencies & Definitions)
+${contextBlocks.length > 0 ? contextBlocks.join("\n\n") : "No extra context."}
 
-### 3. EXISTING DOCUMENTATION
+### 3. EXISTING DOCS (To Update)
 ${isUpdate ? existingDocContent : "(New File)"}
 
-### EXECUTION STEPS
-1. **Analyze the Change**: Did an endpoint name change? Did a new parameter get added? Is a field now required?
-2. **Draft Content**: 
-   - If a parameter \`status\` was added, insert a \`<ParamField>\` row.
-   - If the return type changed, update the JSON response block.
-3. **Refine**: Ensure all components (<ParamField>, <Warning>) are syntactically correct.
-
 ### OUTPUT
-Return **ONLY** the raw MDX content. No markdown wrappers around the whole response.
+Return **ONLY** the valid MDX content. Do not include introductory text like "Here is the documentation".
 `;
 
   console.log("Sending request to OpenAI with system and user prompts...");
+
+  // --- 3. EXECUTION ---
 
   const response = await client.chat.completions.create({
     model: "gpt-4o",
@@ -95,16 +107,18 @@ Return **ONLY** the raw MDX content. No markdown wrappers around the whole respo
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.1,
+    // 0.3 = Controlled Creativity (Smart enough to pick the right archetype, strict enough to follow rules)
+    temperature: 0.3, 
   });
 
   let content = response.choices?.[0]?.message?.content || "";
 
+  // --- 4. PRESERVED OUTPUT LOGGING ---
   console.log("AI-generated documentation received:");
   console.log(content);
 
   return content
     .replace(/^```[a-z]*\n/i, "") 
-    .replace(/\n```$/i, "")    
+    .replace(/\n```$/i, "")     
     .trim();
 }
