@@ -64,11 +64,26 @@ Do not blindly follow a template. First, determine the **Artifact Type** from th
    - **Focus**: Database tables, Relationships, Type definitions.
    - **Structure**: Title > Model Description > Fields > Relationships.
 
+### VISUAL STYLE GUIDE (STRICT ENFORCEMENT)
+While you decide the *content*, you MUST output it using these visual components:
+
+1.  **Top Badge**: Immediately under the H1 Title, add a badge showing the file path.
+    Example: \`<div className="flex gap-2"><span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono text-gray-600">lib/usage-limit.ts</span></div>\`
+    
+2.  **Configuration MUST be a Table**:
+    - Do not use lists for Env Vars. Use a Markdown table with columns: | Variable | Description | Required |
+
+3.  **Parameters MUST be a Table**:
+    - For functions or classes, use a Markdown table: | Name | Type | Description |
+
+4.  **Callouts**:
+    - Use \`<Callout type="warning">\` for side effects or breaking changes.
+    - Use \`<Callout type="info">\` for helpful context.
+
 ### UNIVERSAL RULES (Apply to ALL types)
 1. **No Hallucinations**: If the code is a simple utility function, DO NOT invent a REST API endpoint for it.
 2. **Context-Aware**: If you see imports like \`redis\`, mention that Redis is a dependency.
 3. **Adaptive Formatting**: 
-   - Use MDX components (\`<Note>\`, \`<Warning>\`, \`<Callout>\`) only when they add value.
    - If a section is irrelevant (e.g., a function with no arguments), skip the "Parameters" section.
    - Code blocks must always specify the language (e.g., \`\`\`typescript).
 `;
